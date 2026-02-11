@@ -8,7 +8,9 @@
 | **T3** | Recent Activity Logging                   | Fixed-size circular buffer, store records, filter, export             |
 | **T4** | At-Risk Priority & Recommendations        | Risk scores, max-heap ranking, recommendations, export CSV            |
 **FORBIDDEN** - No `<vector>`, `<list>`, `<queue>`, `<stack>`, `<priority_queue>`, `<map>`
-## **Task 1**
+
+
+## **Task 1 - Mohammed**
 
 | Requirement             | What it means                                        |
 | ----------------------- | ---------------------------------------------------- |
@@ -31,7 +33,9 @@
 | **Learner → Progress**    | **Hash Map**           | O(1): Resume functionality                          |
 | **Sessions**              | **Array of Structs**   | Fixed 5 sessions, random access by ID               |
 
-## **Task 2**
+
+
+## **Task 2 - Ayman**
 **Your job:**
 - Define all activities for all 5 sessions    
 - Track where EACH learner is **right now** (current activity)    
@@ -65,7 +69,9 @@
 | **Scores**               | **2D Array or Hash Map** | `learnerID → sessionID → activityIndex → score`            |
 | **Session completion**   | **Boolean check**        | `currentIndex == lastIndex`                                |
 
-## **Task 3**
+
+
+## **Task 3 - Hasan**
 
 **Your job:**
 - **Receive** activity records from Task 2    
@@ -95,7 +101,9 @@
 | **Export formatting**    | **String buffer**          | Efficient file writing                               |
 | **Timestamp**            | `time()`                   | Standard library, unique filenames                   |
 
-## **Task 4**
+
+
+## **Task 4 - Omar**
 
 Your Job:
 - **Read logs** from Task 3 (circular buffer)    
