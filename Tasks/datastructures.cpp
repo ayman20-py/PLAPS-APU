@@ -1,43 +1,124 @@
 #include <iostream> 
+#include <string>
 using namespace std;
 
-// Singly Linked list
-struct Student {
+
+// ========== GLOBAL VARIABLES ==========  
+int nextID = 1;
+
+// ========== LEARNER ==========
+struct Learner {
     int id;
-    string name;
-    int currentSessionID;  // -1 = not in session
-    int currentActivity;
-    bool isActive;
-    StudentStats stats;
-    Student* next;
+    string name;                
+    int currentSessionID;       
+    int currentActivity;        
+    int completedSessions[5];   
+    bool isActive;             
+    Learner* next;          
 };
 
+// ========== SESSION ==========
 struct Session {
     int id;
-    string name;
+    string name;               
     string topic;
     int capacity;
     int activeCount;
-    Student* activeSlots[5];  // fixed capacity
-    Activity activities[];
-    // Waiting queue is GLOBAL, not per session (simpler)
+    Learner* activeSlots[5];
 };
 
-struct Activity { 
-    int id;
-    string title;
-    string desciption;
-    Session* session;
+// ========== WAITING QUEUE ==========
+struct WaitingQueue {
+    int data[20];
+    int front;
+    int rear;
+    int count;
 };
 
-struct StudentStats {
+// ========== HASH MAP NODE ==========
+struct MapNode {
     int learnerID;
-    int totalAttempts;
-    int failedAttempts;
-    float totalScore;
-    float avgScore;
-    float failureRate;
-    int sessionsCompleted;
-    int currentSession;
-    int scoresByTopic[][2]; // topicID → [total, count]
+    int sessionID;
+    MapNode* next;
+};
+
+
+class LearnerLinkedList {
+    private:
+        Learner* head;
+        Learner* tail;
+        int totalLearners;
+
+    public:
+        LearnerLinkedList() {
+            head = nullptr;
+            tail = nullptr;
+            totalLearners = 0;
+        }
+
+
+        void addLearner(Learner* newLearner) {
+            if (head == NULL) {
+                head = newLearner;
+                return;
+            }
+
+            Learner* temp = head;
+            while (temp->next != NULL) {
+                temp = temp -> next;
+            }
+
+            temp->next = newLearner;
+        }
+
+
+        void displayAllLearners() {
+            cout << "\n=== REGISTERED LEARNERS ===\n";
+            
+            if (head == NULL) {
+                cout << "No learners.\n";
+                return;
+            }
+            
+            Learner* temp = head;
+            while (temp != NULL) {
+                cout << "ID: " << temp->id 
+                    << " | Name: " << temp->name;
+                
+                if (temp->isActive) {
+                    cout << " | IN SESSION " << temp->currentSessionID;
+                } else {
+                    cout << " | Not in session";
+                }
+                cout << "\n";
+                
+                temp = temp->next;
+            }
+        }
+
+
+};
+
+Learner* createLearner(string name) {
+    Learner* newL = new Learner;
+
+    newL->id = nextID++;
+    newL->name = name;
+    newL->currentSessionID = -1;
+    newL->currentActivity = -1;
+    newL->isActive = false;
+    newL->next = NULL;
+
+    for(int i = 0; i < 5; i++) {
+        newL->completedSessions[i] = 0;
+    }
+    return newL;
+}
+class SessionManagement {
+
+    public: 
+
+    void initSessions() { 
+        
+    }
 };
