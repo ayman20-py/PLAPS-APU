@@ -24,7 +24,16 @@ struct Session {
     string topic;
     int capacity;
     int activeCount;
+    Activity* activities[5];
     Learner* activeSlots[5];
+};
+
+struct Activity {
+    int id; 
+    string title;
+    string description;
+    int difficulty;
+    string topic;
 };
 
 // ========== WAITING QUEUE ==========
@@ -139,11 +148,3 @@ Learner* createLearner(string name) {
     }
     return newL;
 }
-class SessionManagement {
-
-    public: 
-
-    void initSessions() { 
-        
-    }
-};
