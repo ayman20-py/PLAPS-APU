@@ -60,6 +60,8 @@ class LearnerLinkedList {
         void addLearner(Learner* newLearner) {
             if (head == NULL) {
                 head = newLearner;
+                tail = newLearner;
+                totalLearners++;
                 return;
             }
 
@@ -69,8 +71,17 @@ class LearnerLinkedList {
             }
 
             temp->next = newLearner;
+            tail = newLearner;
+            totalLearners++;
         }
 
+        Learner* getHead() {
+            return head;
+        }
+
+        int getCount() {
+            return totalLearners;
+        }
 
         void displayAllLearners() {
             cout << "\n=== REGISTERED LEARNERS ===\n";
