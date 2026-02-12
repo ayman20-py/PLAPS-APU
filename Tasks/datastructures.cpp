@@ -42,6 +42,19 @@ struct MapNode {
     MapNode* next;
 };
 
+// Example of logger output => [1] 2025-03-15 14:23 | Learner 101 | S1 Act2 | Arrays | Score: 45% | ❌ FAIL | Diff: 1/5
+// timestamp | Learner id |Session index, Activity index | Session name | Score : Percentage | failed | Difficulty level
+struct LoggerRecord {
+    int learnerID;
+    int sessionID;
+    int activityID;
+    string topic;
+    int score;
+    bool failed;
+    int difficulty;
+    time_t timestamp;
+};
+
 
 class LearnerLinkedList {
     private:
@@ -82,6 +95,7 @@ class LearnerLinkedList {
         int getCount() {
             return totalLearners;
         }
+
 
         void displayAllLearners() {
             cout << "\n=== REGISTERED LEARNERS ===\n";

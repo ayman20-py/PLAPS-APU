@@ -162,8 +162,10 @@ int getNextIDFromCSV() {
 }
 
 void LearnerLinkedList_Test() {
+    // learnerLL.addLearner(createLearner("Mohammed"));
     // learnerLL.addLearner(createLearner("Ayman"));
-    // learnerLL.addLearner(createLearner("Abdul"));
+    // learnerLL.addLearner(createLearner("Hasan"));
+    // learnerLL.addLearner(createLearner("Omar"));
 
     learnerLL.displayAllLearners();
 }
