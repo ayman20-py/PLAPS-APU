@@ -205,13 +205,8 @@ void LearnerLinkedList_Test() {
     learnerLL.displayAllLearners();
 }
 
-// Forward declarations for queue functions (defined in task2.cpp)
-extern EnrollmentQueue enrollmentQueue;
-extern TransitionQueue transitionQueue;
-extern bool isEnrollmentQueueFull();
-extern bool isTransitionQueueFull();
-extern void enqueueEnrollment(int learnerID);
-extern void enqueueTransition(int learnerID, int targetSession, int targetActivity);
+// Forward declarations for transition queue functions (defined in task2.cpp)
+// Enrollment queue functions are declared in datastructures.h
 
 void saveQueuesToCSV() {
     ofstream file("Dataset/queues.csv");
@@ -230,7 +225,7 @@ void saveQueuesToCSV() {
         for (int i = 0; i < enrollmentQueue.count; i++) {
             file << enrollmentQueue.learnerIDs[idx];
             if (i < enrollmentQueue.count - 1) file << ";";
-            idx = (idx + 1) % MAX_QUEUE_SIZE;
+            idx = (idx + 1) % MAX_ENROLLMENT_QUEUE_SIZE;
         }
         file << endl;
     }

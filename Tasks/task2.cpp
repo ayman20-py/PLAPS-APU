@@ -46,24 +46,7 @@ extern LearnerLinkedList learnerLL;
 // Queue constants
 const int MAX_QUEUE_SIZE = 50;
 
-// Queue 1: New Enrollment Queue (students waiting for Session 1, Activity 1)
-struct EnrollmentQueue {
-    int learnerIDs[MAX_QUEUE_SIZE];
-    int front;
-    int rear;
-    int count;
-    
-    EnrollmentQueue() {
-        front = 0;
-        rear = -1;
-        count = 0;
-        for (int i = 0; i < MAX_QUEUE_SIZE; i++) {
-            learnerIDs[i] = -1;
-        }
-    }
-};
-
-// Queue 2: Transition Queue (students waiting for specific activities)
+// Queue 2: Transition Queue (students waiting for specific activities) - local to task2
 struct TransitionRequest {
     int learnerID;
     int targetSession;
@@ -88,8 +71,10 @@ struct TransitionQueue {
     }
 };
 
-// Global queue instances - must be accessible from main.cpp
+// Global enrollment queue instance - defined here, declared as extern in datastructures.h
 EnrollmentQueue enrollmentQueue;
+
+// Local transition queue instance
 TransitionQueue transitionQueue;
 
 // Forward declarations
@@ -108,7 +93,7 @@ bool isEnrollmentQueueEmpty() {
 }
 
 bool isEnrollmentQueueFull() {
-    return enrollmentQueue.count >= MAX_QUEUE_SIZE;
+    return enrollmentQueue.count >= MAX_ENROLLMENT_QUEUE_SIZE;
 }
 
 void enqueueEnrollment(int learnerID) {
@@ -116,7 +101,7 @@ void enqueueEnrollment(int learnerID) {
         cout << "Error: Enrollment queue is full!" << endl;
         return;
     }
-    enrollmentQueue.rear = (enrollmentQueue.rear + 1) % MAX_QUEUE_SIZE;
+    enrollmentQueue.rear = (enrollmentQueue.rear + 1) % MAX_ENROLLMENT_QUEUE_SIZE;
     enrollmentQueue.learnerIDs[enrollmentQueue.rear] = learnerID;
     enrollmentQueue.count++;
 }
@@ -127,7 +112,7 @@ int dequeueEnrollment() {
     }
     int learnerID = enrollmentQueue.learnerIDs[enrollmentQueue.front];
     enrollmentQueue.learnerIDs[enrollmentQueue.front] = -1;
-    enrollmentQueue.front = (enrollmentQueue.front + 1) % MAX_QUEUE_SIZE;
+    enrollmentQueue.front = (enrollmentQueue.front + 1) % MAX_ENROLLMENT_QUEUE_SIZE;
     enrollmentQueue.count--;
     return learnerID;
 }
@@ -177,7 +162,7 @@ bool isLearnerInEnrollmentQueue(int learnerID) {
         if (enrollmentQueue.learnerIDs[idx] == learnerID) {
             return true;
         }
-        idx = (idx + 1) % MAX_QUEUE_SIZE;
+        idx = (idx + 1) % MAX_ENROLLMENT_QUEUE_SIZE;
     }
     return false;
 }
@@ -265,11 +250,11 @@ void displayQueues() {
                 cout << l->name << " (ID: " << learnerID << ")";
                 if (i < enrollmentQueue.count - 1) cout << ", ";
             }
-            idx = (idx + 1) % MAX_QUEUE_SIZE;
+            idx = (idx + 1) % MAX_ENROLLMENT_QUEUE_SIZE;
         }
         cout << endl;
     }
-    
+
     cout << "\n--- TRANSITION QUEUE ---" << endl;
     if (isTransitionQueueEmpty()) {
         cout << "  Queue is empty" << endl;

@@ -278,4 +278,34 @@ Learner* createLearner(string name) {
     return newL;
 }
 
+// ========== GLOBAL ENROLLMENT QUEUE ==========
+// This queue is accessible from any file that includes datastructures.h
+const int MAX_ENROLLMENT_QUEUE_SIZE = 50;
+
+struct EnrollmentQueue {
+    int learnerIDs[MAX_ENROLLMENT_QUEUE_SIZE];
+    int front;
+    int rear;
+    int count;
+    
+    EnrollmentQueue() {
+        front = 0;
+        rear = -1;
+        count = 0;
+        for (int i = 0; i < MAX_ENROLLMENT_QUEUE_SIZE; i++) {
+            learnerIDs[i] = -1;
+        }
+    }
+};
+
+// Global enrollment queue instance - defined in task2.cpp
+extern EnrollmentQueue enrollmentQueue;
+
+// Queue operation declarations - implemented in task2.cpp
+extern bool isEnrollmentQueueEmpty();
+extern bool isEnrollmentQueueFull();
+extern void enqueueEnrollment(int learnerID);
+extern int dequeueEnrollment();
+extern bool isLearnerInEnrollmentQueue(int learnerID);
+
 #endif // DATASTRUCTURES_H
