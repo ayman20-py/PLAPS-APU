@@ -16,6 +16,8 @@ void LearnerLinkedList_Test();
 void saveLearnersToCSV();
 void loadLearnersFromCSV();
 int getNextIDFromCSV();
+void saveQueuesToCSV();
+void loadQueuesFromCSV();
 
 int main() {
     // Clear terminal at startup
@@ -25,6 +27,7 @@ int main() {
 
     // Initializing Learner Linked List from CSV
     loadLearnersFromCSV();
+    loadQueuesFromCSV();
     nextID = getNextIDFromCSV();
 
     cout << "Loaded " << learnerLL.getCount() << " learners from students.csv" << endl;
@@ -57,7 +60,8 @@ int main() {
                 break;
             case 5: 
                 saveLearnersToCSV();
-                cout << "Data saved to students.csv. Exiting..." << endl;
+                saveQueuesToCSV();
+                cout << "Data saved. Exiting..." << endl;
                 return 0;
             default:
                 cout << "Invalid choice. Please try again." << endl;
@@ -199,4 +203,102 @@ void LearnerLinkedList_Test() {
     // learnerLL.addLearner(createLearner("Omar"));
 
     learnerLL.displayAllLearners();
+}
+
+// Forward declarations for queue functions (defined in task2.cpp)
+extern EnrollmentQueue enrollmentQueue;
+extern TransitionQueue transitionQueue;
+extern bool isEnrollmentQueueFull();
+extern bool isTransitionQueueFull();
+extern void enqueueEnrollment(int learnerID);
+extern void enqueueTransition(int learnerID, int targetSession, int targetActivity);
+
+void saveQueuesToCSV() {
+    ofstream file("Dataset/queues.csv");
+    if (!file.is_open()) {
+        cout << "Error: Could not open queues.csv for writing" << endl;
+        return;
+    }
+
+    // Write header
+    file << "queueType,data" << endl;
+
+    // Write enrollment queue
+    if (!isEnrollmentQueueEmpty()) {
+        file << "enrollment,";
+        int idx = enrollmentQueue.front;
+        for (int i = 0; i < enrollmentQueue.count; i++) {
+            file << enrollmentQueue.learnerIDs[idx];
+            if (i < enrollmentQueue.count - 1) file << ";";
+            idx = (idx + 1) % MAX_QUEUE_SIZE;
+        }
+        file << endl;
+    }
+
+    // Write transition queue
+    if (!isTransitionQueueEmpty()) {
+        file << "transition,";
+        int idx = transitionQueue.front;
+        for (int i = 0; i < transitionQueue.count; i++) {
+            file << transitionQueue.requests[idx].learnerID << ":"
+                 << transitionQueue.requests[idx].targetSession << ":"
+                 << transitionQueue.requests[idx].targetActivity;
+            if (i < transitionQueue.count - 1) file << ";";
+            idx = (idx + 1) % MAX_QUEUE_SIZE;
+        }
+        file << endl;
+    }
+
+    file.close();
+}
+
+void loadQueuesFromCSV() {
+    ifstream file("Dataset/queues.csv");
+    if (!file.is_open()) {
+        // File doesn't exist yet, that's okay
+        return;
+    }
+
+    string line;
+    bool isHeader = true;
+    
+    while (getline(file, line)) {
+        if (isHeader) {
+            isHeader = false;
+            continue;
+        }
+
+        stringstream ss(line);
+        string queueType, data;
+
+        getline(ss, queueType, ',');
+        getline(ss, data, ',');
+
+        if (queueType == "enrollment" && !data.empty()) {
+            stringstream dataStream(data);
+            string learnerID;
+            while (getline(dataStream, learnerID, ';')) {
+                if (!learnerID.empty() && !isEnrollmentQueueFull()) {
+                    enqueueEnrollment(stoi(learnerID));
+                }
+            }
+        } else if (queueType == "transition" && !data.empty()) {
+            stringstream dataStream(data);
+            string entry;
+            while (getline(dataStream, entry, ';')) {
+                if (!entry.empty() && !isTransitionQueueFull()) {
+                    stringstream entryStream(entry);
+                    string learnerID, sessionID, activityID;
+                    getline(entryStream, learnerID, ':');
+                    getline(entryStream, sessionID, ':');
+                    getline(entryStream, activityID, ':');
+                    if (!learnerID.empty() && !sessionID.empty() && !activityID.empty()) {
+                        enqueueTransition(stoi(learnerID), stoi(sessionID), stoi(activityID));
+                    }
+                }
+            }
+        }
+    }
+
+    file.close();
 }
