@@ -2,6 +2,8 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <cstdlib>
+#include <limits>
 #include "Tasks/datastructures.h"
 #include "Tasks/task2.cpp"
 
@@ -16,6 +18,9 @@ void loadLearnersFromCSV();
 int getNextIDFromCSV();
 
 int main() {
+    // Clear terminal at startup
+    system("cls");
+    
     int choice;
 
     // Initializing Learner Linked List from CSV
@@ -24,9 +29,6 @@ int main() {
 
     cout << "Loaded " << learnerLL.getCount() << " learners from students.csv" << endl;
     cout << "Next ID will be: " << nextID << endl;
-
-    LearnerLinkedList_Test();
-
 
     // ========== MENU ==========
     while(true) {
@@ -38,17 +40,27 @@ int main() {
         cout << "5. Save & Exit" << endl;
         cout << "Choice: ";
         
-        cin >> choice;
+        if (!(cin >> choice)) {
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            cout << "Invalid input. Please enter a number." << endl;
+            continue;
+        }
+        system("cls");
         
         switch(choice) {
             case 2: 
                 cout << "Initializing Activities" << endl;
                 InitializingSessions();
+                // Clear screen after returning from submenu
+                system("cls");
                 break;
             case 5: 
                 saveLearnersToCSV();
                 cout << "Data saved to students.csv. Exiting..." << endl;
                 return 0;
+            default:
+                cout << "Invalid choice. Please try again." << endl;
         }
     }
 }
@@ -121,12 +133,20 @@ void loadLearnersFromCSV() {
         newL->isActive = (isActiveStr == "1");
         newL->next = NULL;
 
-        // Parse completed sessions
+        // Initialize completed sessions array to 0 first
+        for (int i = 0; i < 5; i++) {
+            newL->completedSessions[i] = 0;
+        }
+
+        // Parse completed sessions from CSV
         stringstream csStream(completedSessionsStr);
         string session;
         int i = 0;
         while (getline(csStream, session, ';') && i < 5) {
-            newL->completedSessions[i++] = stoi(session);
+            if (!session.empty()) {
+                newL->completedSessions[i] = stoi(session);
+            }
+            i++;
         }
 
         learnerLL.addLearner(newL);

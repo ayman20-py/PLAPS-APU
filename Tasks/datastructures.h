@@ -29,7 +29,7 @@ struct Session {
     string name;               
     string topic;
     int capacity;
-    Activity* activities[5];
+    Activity* activities[6];
 };
 
 struct Activity {
@@ -38,6 +38,20 @@ struct Activity {
     string description;
     int difficulty;
     Learner* currentLearner;
+    int waitingQueue[20];  // Queue of learner IDs waiting for this activity
+    int queueFront;
+        int queueRear;
+    int queueCount;
+    
+    Activity() {
+        currentLearner = NULL;
+        queueFront = 0;
+        queueRear = -1;
+        queueCount = 0;
+        for(int i = 0; i < 20; i++) {
+            waitingQueue[i] = -1;
+        }
+    }
 };
 
 // ========== WAITING QUEUE ==========
@@ -142,7 +156,7 @@ class SessionManagement {
     Session* sessions[5];
 
     public:
-    // Initializing all of the sessions
+    // Creating all of the sessions and activities
     SessionManagement() {
 
         // ========== SESSION 1: ARRAYS & MEMORY ==========
@@ -222,7 +236,7 @@ class SessionManagement {
         sess->capacity = cap;
         
         // Initialize activity pointers to NULL
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 5; i++) {
             sess->activities[i] = NULL;
         }
     
