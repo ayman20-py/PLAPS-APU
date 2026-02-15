@@ -2,10 +2,12 @@
 #include <fstream>
 #include <sstream>
 #include <string>
-#include "Tasks/datastructures.cpp"
+#include "Tasks/datastructures.h"
+#include "Tasks/task2.cpp"
 
 using namespace std;
 
+int nextID = 1;
 LearnerLinkedList learnerLL;
 
 void LearnerLinkedList_Test();
@@ -39,6 +41,10 @@ int main() {
         cin >> choice;
         
         switch(choice) {
+            case 2: 
+                cout << "Initializing Activities" << endl;
+                InitializingSessions();
+                break;
             case 5: 
                 saveLearnersToCSV();
                 cout << "Data saved to students.csv. Exiting..." << endl;
@@ -136,7 +142,7 @@ int getNextIDFromCSV() {
     }
 
     string line;
-    int maxID = 0;
+    string lastLine;
     bool isHeader = true;
 
     while (getline(file, line)) {
@@ -144,21 +150,26 @@ int getNextIDFromCSV() {
             isHeader = false;
             continue;
         }
-
-        stringstream ss(line);
-        string idStr;
-        getline(ss, idStr, ',');
-
-        if (!idStr.empty()) {
-            int id = stoi(idStr);
-            if (id > maxID) {
-                maxID = id;
-            }
+        if (!line.empty()) {
+            lastLine = line;
         }
     }
 
     file.close();
-    return maxID + 1;
+
+    if (lastLine.empty()) {
+        return 1;
+    }
+
+    stringstream ss(lastLine);
+    string idStr;
+    getline(ss, idStr, ',');
+
+    if (!idStr.empty()) {
+        return stoi(idStr) + 1;
+    }
+
+    return 1;
 }
 
 void LearnerLinkedList_Test() {
