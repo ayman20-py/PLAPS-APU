@@ -6,6 +6,7 @@
 #include <limits>
 #include "Tasks/datastructures.h"
 #include "Tasks/task2.cpp"
+#include "Tasks/task1.cpp"
 
 using namespace std;
 
@@ -52,6 +53,12 @@ int main() {
         system("cls");
         
         switch(choice) {
+            case 1:
+                cout << "Launching Session Management..." << endl;
+                Task1_Menu();
+                // Clear screen after returning from submenu
+                system("cls");
+                break;
             case 2: 
                 cout << "Initializing Activities" << endl;
                 InitializingSessions();
