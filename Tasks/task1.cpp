@@ -1,9 +1,7 @@
 #include <iostream>
 #include <string>
 #include <limits>
-#include <queue>      // For circular queue (waiting queue)
 #include <map>        // For hash maps
-#include <list>       // For singly linked list (if needed)
 #include "../Tasks/datastructures.h"
 
 using namespace std;
@@ -20,10 +18,27 @@ Session task1Sessions[5];
 // sessions have different capacities based on number of activities
 int activeSlots[5][6]; // Max 6 activities per session
 
-// ========== WAITING QUEUE (STL queue) ==========
-// Circular queue using STL for each session
-queue<int> waitingQueues[5]; // One queue per session
+// ========== WAITING QUEUE (Manual Array-Based Queue) ==========
+// Normal queue implementation for each session
 const int MAX_WAITING_QUEUE = 20;
+
+struct WaitingQueueStruct {
+    int learnerIDs[MAX_WAITING_QUEUE];
+    int front;
+    int rear;
+    int count;
+
+    WaitingQueueStruct() {
+        front = 0;
+        rear = -1;
+        count = 0;
+        for (int i = 0; i < MAX_WAITING_QUEUE; i++) {
+            learnerIDs[i] = -1;
+        }
+    }
+};
+
+WaitingQueueStruct waitingQueues[5]; // One queue per session
 
 // ========== HASH MAPS (STL map) ==========
 // Learner → Session mapping: O(1) lookup "Which session is learner 101 in?"
@@ -124,15 +139,15 @@ void Task1_Menu() {
                 cout << "\n===== WAITING QUEUES =====" << endl;
                 for (int i = 0; i < 5; i++) {
                     cout << "\nSession " << (i + 1) << ": " << task1Sessions[i].name << endl;
-                    cout << "Queue Size: " << waitingQueues[i].size() << "/" << MAX_WAITING_QUEUE << endl;
+                    cout << "Queue Size: " << waitingQueues[i].count << "/" << MAX_WAITING_QUEUE << endl;
 
-                    if (!waitingQueues[i].empty()) {
+                    if (waitingQueues[i].count > 0) {
                         // Display all learners in queue
-                        queue<int> tempQueue = waitingQueues[i];
                         cout << "Learners waiting (in order): ";
                         int position = 1;
-                        while (!tempQueue.empty()) {
-                            int learnerID = tempQueue.front();
+                        int idx = waitingQueues[i].front;
+                        for (int j = 0; j < waitingQueues[i].count; j++) {
+                            int learnerID = waitingQueues[i].learnerIDs[idx];
                             Learner* learner = task1_findLearnerByID(learnerID);
                             if (learner != NULL) {
                                 cout << "\n  " << position << ". ID: " << learnerID
@@ -140,7 +155,7 @@ void Task1_Menu() {
                             } else {
                                 cout << "\n  " << position << ". ID: " << learnerID;
                             }
-                            tempQueue.pop();
+                            idx = (idx + 1) % MAX_WAITING_QUEUE;
                             position++;
                         }
                         cout << endl;
@@ -198,7 +213,7 @@ void initializeActiveSlots() {
     }
 }
 
-// ========== QUEUE OPERATIONS (using STL queue) ==========
+// ========== QUEUE OPERATIONS (Manual Array-Based) ==========
 bool isSessionFull(int sessionID) {
     int idx = sessionID - 1;
     int occupiedSlots = 0;
@@ -216,46 +231,61 @@ bool isSessionFull(int sessionID) {
 void enqueueWaiting(int sessionID, int learnerID) {
     int idx = sessionID - 1;
 
-    if (waitingQueues[idx].size() >= MAX_WAITING_QUEUE) {
+    if (waitingQueues[idx].count >= MAX_WAITING_QUEUE) {
         cout << "Waiting queue is full!" << endl;
         return;
     }
 
-    waitingQueues[idx].push(learnerID);
+    // Check if learner is already in the queue (prevent duplicates)
+    int current = waitingQueues[idx].front;
+    for (int i = 0; i < waitingQueues[idx].count; i++) {
+        if (waitingQueues[idx].learnerIDs[current] == learnerID) {
+            cout << "Learner " << learnerID << " is already in the waiting queue!" << endl;
+            return;
+        }
+        current = (current + 1) % MAX_WAITING_QUEUE;
+    }
+
+    // Add to rear (circular)
+    waitingQueues[idx].rear = (waitingQueues[idx].rear + 1) % MAX_WAITING_QUEUE;
+    waitingQueues[idx].learnerIDs[waitingQueues[idx].rear] = learnerID;
+    waitingQueues[idx].count++;
 }
 
 int dequeueWaiting(int sessionID) {
     int idx = sessionID - 1;
 
-    if (waitingQueues[idx].empty()) {
+    if (waitingQueues[idx].count == 0) {
         return -1;
     }
 
-    int learnerID = waitingQueues[idx].front();
-    waitingQueues[idx].pop();
+    int learnerID = waitingQueues[idx].learnerIDs[waitingQueues[idx].front];
+    waitingQueues[idx].learnerIDs[waitingQueues[idx].front] = -1;
+    waitingQueues[idx].front = (waitingQueues[idx].front + 1) % MAX_WAITING_QUEUE;
+    waitingQueues[idx].count--;
+
     return learnerID;
 }
 
 void displayWaitingQueue(int sessionID) {
     int idx = sessionID - 1;
 
-    if (waitingQueues[idx].empty()) {
+    if (waitingQueues[idx].count == 0) {
         cout << "No learners waiting." << endl;
         return;
     }
 
-    // Create a temporary queue to display without destroying original
-    queue<int> temp = waitingQueues[idx];
-    cout << "Waiting Queue (" << temp.size() << " learners): ";
-    while (!temp.empty()) {
-        cout << temp.front() << " ";
-        temp.pop();
+    cout << "Waiting Queue (" << waitingQueues[idx].count << " learners): ";
+    int current = waitingQueues[idx].front;
+    for (int i = 0; i < waitingQueues[idx].count; i++) {
+        cout << waitingQueues[idx].learnerIDs[current] << " ";
+        current = (current + 1) % MAX_WAITING_QUEUE;
     }
     cout << endl;
 }
 
 int getWaitingQueueSize(int sessionID) {
-    return waitingQueues[sessionID - 1].size();
+    return waitingQueues[sessionID - 1].count;
 }
 
 // ========== LEARNER OPERATIONS ==========
@@ -299,6 +329,7 @@ Learner* task1_findLearnerByID(int learnerID) {
     }
     return NULL;
 }
+
 bool hasCompletedPrerequisite(Learner* learner, int sessionID) {
     // Session 1 has no prerequisite
     if (sessionID == 1) return true;
@@ -395,6 +426,23 @@ void joinSession() {
         cout << "Session " << sessionID << " is full (all " << task1Sessions[sessionID-1].capacity
              << " activities occupied)." << endl;
 
+        // Check if learner is already in the waiting queue
+        int idx = sessionID - 1;
+        int current = waitingQueues[idx].front;
+        bool alreadyInQueue = false;
+        for (int i = 0; i < waitingQueues[idx].count; i++) {
+            if (waitingQueues[idx].learnerIDs[current] == learnerID) {
+                alreadyInQueue = true;
+                break;
+            }
+            current = (current + 1) % MAX_WAITING_QUEUE;
+        }
+
+        if (alreadyInQueue) {
+            cout << "✗ Learner " << learnerID << " is already in the waiting queue for this session!" << endl;
+            return;
+        }
+
         if (getWaitingQueueSize(sessionID) < MAX_WAITING_QUEUE) {
             enqueueWaiting(sessionID, learnerID);
             cout << "✓ Learner " << learnerID << " added to waiting queue." << endl;
@@ -467,7 +515,7 @@ void exitSession() {
     cout << "✓ Learner " << learnerID << " exited Session " << sessionID << endl;
 
     // Check waiting queue and assign next learner
-    if (!waitingQueues[idx].empty()) {
+    if (waitingQueues[idx].count > 0) {
         int nextLearnerID = dequeueWaiting(sessionID);
         Learner* nextLearner = task1_findLearnerByID(nextLearnerID);
 
@@ -524,18 +572,18 @@ void displayStatus() {
         }
 
         // Show waiting queue
-        if (!waitingQueues[i].empty()) {
-            cout << "Waiting Queue (" << waitingQueues[i].size() << " learners): ";
-            queue<int> tempQueue = waitingQueues[i];
-            while (!tempQueue.empty()) {
-                int learnerID = tempQueue.front();
+        if (waitingQueues[i].count > 0) {
+            cout << "Waiting Queue (" << waitingQueues[i].count << " learners): ";
+            int current = waitingQueues[i].front;
+            for (int j = 0; j < waitingQueues[i].count; j++) {
+                int learnerID = waitingQueues[i].learnerIDs[current];
                 Learner* l = task1_findLearnerByID(learnerID);
                 if (l != NULL) {
                     cout << learnerID << " (" << l->name << ") ";
                 } else {
                     cout << learnerID << " ";
                 }
-                tempQueue.pop();
+                current = (current + 1) % MAX_WAITING_QUEUE;
             }
             cout << endl;
         }
@@ -613,7 +661,52 @@ void resumeProgress() {
             char choice;
             cin >> choice;
             if (choice == 'y' || choice == 'Y') {
-                markSessionComplete(learner, learner->currentSessionID);
+                int currentSessionID = learner->currentSessionID;
+
+                markSessionComplete(learner, currentSessionID);
+
+                // AUTO-EXIT: Automatically exit the session after marking complete
+                int idx = currentSessionID - 1;
+
+                // Find and free the activity slot
+                for (int i = 0; i < task1Sessions[idx].capacity; i++) {
+                    if (activeSlots[idx][i] == learner->id) {
+                        activeSlots[idx][i] = -1;
+                        break;
+                    }
+                }
+
+                learner->isActive = false;
+                learner->currentSessionID = -1;
+                learner->currentActivity = -1;
+                learnerSessionMap.erase(learner->id);
+                updateProgress(learner->id, -1, -1);
+
+                cout << "✓ Learner " << learner->id << " automatically exited Session "
+                     << currentSessionID << endl;
+
+                // Check waiting queue and assign next learner
+                if (waitingQueues[idx].count > 0) {
+                    int nextLearnerID = dequeueWaiting(currentSessionID);
+                    Learner* nextLearner = task1_findLearnerByID(nextLearnerID);
+
+                    if (nextLearner != NULL && !nextLearner->isActive) {
+                        int activitySlot = findAvailableActivitySlot(currentSessionID);
+                        if (activitySlot != -1) {
+                            activeSlots[idx][activitySlot] = nextLearnerID;
+                            nextLearner->isActive = true;
+                            nextLearner->currentSessionID = currentSessionID;
+                            nextLearner->currentActivity = activitySlot + 1;
+
+                            learnerSessionMap[nextLearnerID] = currentSessionID;
+                            updateProgress(nextLearnerID, currentSessionID, activitySlot + 1);
+
+                            cout << "✓ Learner " << nextLearnerID
+                                 << " moved from waiting queue to Session "
+                                 << currentSessionID << " (Activity " << (activitySlot + 1) << ")" << endl;
+                        }
+                    }
+                }
             }
         }
     } else {
