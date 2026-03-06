@@ -77,6 +77,22 @@ EnrollmentQueue enrollmentQueue;
 // Local transition queue instance
 TransitionQueue transitionQueue;
 
+// Session topic names for activity logging.
+const string sessionTopicNames[] = {"Arrays", "Loops", "Functions", "Debugging", "Integration"};
+
+// Activity difficulty levels per session (indexed [session][activity]).
+const int activityDifficultyLevels[][6] = {
+    {1, 1, 2, 2, 3, 0},
+    {1, 1, 2, 2, 3, 0},
+    {2, 2, 2, 3, 3, 3},
+    {2, 3, 3, 4, 0, 0},
+    {4, 4, 4, 0, 0, 0}
+};
+
+// Forward declaration for Task 3 logging.
+void addActivityLogRecord(int learnerID, int sessionID, int activityID,
+                          string topic, int score, bool failed, int difficulty);
+
 // Forward declarations
 void viewAllSessionsAndActivities();
 void changeStudentActivity();
@@ -530,6 +546,11 @@ void changeStudentActivity() {
             return;
         }
         
+        // Log the activity attempt regardless of pass/fail.
+        int logDifficulty = activityDifficultyLevels[currentSession - 1][currentActivity - 1];
+        string logTopic = sessionTopicNames[currentSession - 1];
+        addActivityLogRecord(learnerID, currentSession, currentActivity, logTopic, (int)score, (score < 50), logDifficulty);
+
         if (score < 50) {
             cout << "Promotion rejected! Score " << score << "% is below 50% (Fail)." << endl;
             return;
