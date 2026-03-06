@@ -82,6 +82,16 @@ struct LoggerRecord {
     time_t timestamp;
 };
 
+// ========== ACTIVITY LOG BUFFER ==========
+// Shared between Task 3 (writer) and Task 4 (reader).
+const int LOG_BUFFER_CAPACITY = 50;
+
+struct ActivityLogBuffer {
+    LoggerRecord records[LOG_BUFFER_CAPACITY];
+    int head;
+    int tail;
+    int count;
+};
 
 class LearnerLinkedList {
     private:

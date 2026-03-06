@@ -6,6 +6,8 @@
 #include <limits>
 #include "Tasks/datastructures.h"
 #include "Tasks/task2.cpp"
+#include "Tasks/task3.cpp"
+#include "Tasks/task4.cpp"
 
 using namespace std;
 
@@ -52,10 +54,20 @@ int main() {
         system("cls");
         
         switch(choice) {
-            case 2: 
+            case 2:
                 cout << "Initializing Activities" << endl;
                 InitializingSessions();
                 // Clear screen after returning from submenu
+                system("cls");
+                break;
+            case 3:
+                cout << "Initializing Activity Logger" << endl;
+                initializeActivityLogger();
+                system("cls");
+                break;
+            case 4:
+                cout << "Initializing Risk Engine" << endl;
+                initializeRiskEngine();
                 system("cls");
                 break;
             case 5: 
