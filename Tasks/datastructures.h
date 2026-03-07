@@ -72,6 +72,7 @@ struct Learner {
     int currentSessionID;       
     int currentActivity;        
     int completedSessions[5];   
+    int scores[5][6];  // scores[session-1][activity-1], -1 = not attempted
     bool isActive;             
     Learner* next;
     
@@ -344,6 +345,9 @@ Learner* createLearner(string name) {
 
     for(int i = 0; i < 5; i++) {
         newL->completedSessions[i] = 0;
+        for (int j = 0; j < 6; j++) {
+            newL->scores[i][j] = -1;
+        }
     }
     return newL;
 }

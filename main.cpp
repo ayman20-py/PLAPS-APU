@@ -185,6 +185,9 @@ void loadLearnersFromCSV() {
         // Initialize completed sessions array to 0 first
         for (int i = 0; i < 5; i++) {
             newL->completedSessions[i] = 0;
+            for (int j = 0; j < 6; j++) {
+                newL->scores[i][j] = -1;
+            }
         }
 
         // Parse completed sessions from CSV

@@ -10,6 +10,15 @@ using namespace std;
 extern int nextID;
 extern LearnerLinkedList learnerLL;
 
+// External enrollment queue functions from task2.cpp
+extern bool isEnrollmentQueueEmpty();
+extern bool isEnrollmentQueueFull();
+extern void enqueueEnrollment(int learnerID);
+extern int dequeueEnrollment();
+extern bool isLearnerInEnrollmentQueue(int learnerID);
+extern bool isActivityOccupied(int sessionID, int activityID, int excludeLearnerID);
+extern void populateLearnerStacks(Learner* learner);
+
 // ========== SESSION MANAGEMENT ==========
 // Global session array with predefined sessions
 Session task1Sessions[5];
@@ -313,7 +322,18 @@ void registerLearner() {
     }
     learnerProgressMap[newLearner->id] = progress;
 
-    cout << "✓ Learner registered successfully!" << endl;
+    // Check if Session 1, Activity 1 is free
+    if (!isActivityOccupied(1, 1, newLearner->id)) {
+        newLearner->currentSessionID = 1;
+        newLearner->currentActivity = 1;
+        newLearner->isActive = true;
+        populateLearnerStacks(newLearner);
+        cout << "✓ Learner enrolled directly in Session 1, Activity 1!" << endl;
+    } else {
+        enqueueEnrollment(newLearner->id);
+        cout << "✓ Learner added to enrollment queue (waiting for Session 1, Activity 1)" << endl;
+    }
+
     cout << "  ID: " << newLearner->id << endl;
     cout << "  Name: " << newLearner->name << endl;
 }
