@@ -18,10 +18,12 @@
 #include <cstring>
 #include <cstdlib>
 #include <limits>
+#include "datastructures.h"
 
 // External references to shared data from main.cpp and datastructures.h.
 extern LearnerLinkedList learnerLL;
 Learner* findLearnerByID(int id);
+void notifyRiskEngineOfLogChange(const LoggerRecord* overwrittenRecord, const LoggerRecord& newRecord);
 
 // LOG_BUFFER_CAPACITY and ActivityLogBuffer are defined in datastructures.h.
 
@@ -30,7 +32,7 @@ Learner* findLearnerByID(int id);
 // ============================================================
 
 const int LEARNER_INDEX_MAP_SIZE = 53;
-const int MAX_LOG_ENTRIES_PER_LEARNER = 50;
+const int MAX_LOG_ENTRIES_PER_LEARNER = LOG_BUFFER_CAPACITY;
 
 // Each node stores the buffer indices where a particular learner's records live.
 struct LogIndexNode {
@@ -48,6 +50,7 @@ struct LearnerLogIndexMap {
 // Global instances.
 ActivityLogBuffer activityLogBuffer;
 LearnerLogIndexMap learnerLogIndex;
+bool activityLoggerInitialized = false;
 
 // ============================================================
 //  INITIALIZATION FUNCTIONS
@@ -63,8 +66,19 @@ void initializeActivityLogBuffer() {
 // Clears all buckets in the learner log index hash map.
 void initializeLearnerLogIndex() {
     for (int i = 0; i < LEARNER_INDEX_MAP_SIZE; i++) {
-        learnerLogIndex.buckets[i] = NULL;
+        learnerLogIndex.buckets[i] = nullptr;
     }
+}
+
+// Initializes Task 3 state once without wiping existing runtime logs later.
+void ensureActivityLoggerInitialized() {
+    if (activityLoggerInitialized) {
+        return;
+    }
+
+    initializeActivityLogBuffer();
+    initializeLearnerLogIndex();
+    activityLoggerInitialized = true;
 }
 
 // ============================================================
@@ -78,28 +92,28 @@ int computeLearnerLogHash(int learnerID) {
     return hashValue;
 }
 
-// Finds the index node for a given learner ID, or returns NULL if not found.
+// Finds the index node for a given learner ID, or returns nullptr if not found.
 LogIndexNode* findLearnerIndexNode(int learnerID) {
     int bucket = computeLearnerLogHash(learnerID);
     LogIndexNode* current = learnerLogIndex.buckets[bucket];
-    while (current != NULL) {
+    while (current != nullptr) {
         if (current->learnerID == learnerID) {
             return current;
         }
         current = current->next;
     }
-    return NULL;
+    return nullptr;
 }
 
 // Adds a buffer index to the learner's index node. Creates the node if needed.
 void addToLearnerIndex(int learnerID, int bufferIndex) {
     LogIndexNode* node = findLearnerIndexNode(learnerID);
-    if (node == NULL) {
+    if (node == nullptr) {
         // Create a new node for this learner.
         node = new LogIndexNode;
         node->learnerID = learnerID;
         node->count = 0;
-        node->next = NULL;
+        node->next = nullptr;
         for (int i = 0; i < MAX_LOG_ENTRIES_PER_LEARNER; i++) {
             node->bufferIndices[i] = -1;
         }
@@ -117,7 +131,7 @@ void addToLearnerIndex(int learnerID, int bufferIndex) {
 // Removes a specific buffer index from a learner's index node.
 void removeFromLearnerIndex(int learnerID, int bufferIndex) {
     LogIndexNode* node = findLearnerIndexNode(learnerID);
-    if (node == NULL) return;
+    if (node == nullptr) return;
     for (int i = 0; i < node->count; i++) {
         if (node->bufferIndices[i] == bufferIndex) {
             // Shift remaining entries left to fill the gap.
@@ -138,12 +152,18 @@ void removeFromLearnerIndex(int learnerID, int bufferIndex) {
 // Adds a new activity log record to the circular buffer.
 void addActivityLogRecord(int learnerID, int sessionID, int activityID,
                           string topic, int score, bool failed, int difficulty) {
+    ensureActivityLoggerInitialized();
+
     int insertIndex = activityLogBuffer.tail;
+    LoggerRecord overwrittenRecord;
+    LoggerRecord* overwrittenRecordPtr = nullptr;
 
     // If the buffer is full, the oldest record at head gets overwritten.
     if (activityLogBuffer.count == LOG_BUFFER_CAPACITY) {
         // Remove the old record's index entry before overwriting.
-        int oldLearnerID = activityLogBuffer.records[activityLogBuffer.head].learnerID;
+        overwrittenRecord = activityLogBuffer.records[activityLogBuffer.head];
+        overwrittenRecordPtr = &overwrittenRecord;
+        int oldLearnerID = overwrittenRecord.learnerID;
         removeFromLearnerIndex(oldLearnerID, activityLogBuffer.head);
         activityLogBuffer.head = (activityLogBuffer.head + 1) % LOG_BUFFER_CAPACITY;
     } else {
@@ -158,13 +178,15 @@ void addActivityLogRecord(int learnerID, int sessionID, int activityID,
     activityLogBuffer.records[insertIndex].score = score;
     activityLogBuffer.records[insertIndex].failed = failed;
     activityLogBuffer.records[insertIndex].difficulty = difficulty;
-    activityLogBuffer.records[insertIndex].timestamp = time(NULL);
+    activityLogBuffer.records[insertIndex].timestamp = time(nullptr);
 
     // Add the new index entry for this learner.
     addToLearnerIndex(learnerID, insertIndex);
 
     // Advance the tail pointer.
     activityLogBuffer.tail = (activityLogBuffer.tail + 1) % LOG_BUFFER_CAPACITY;
+
+    notifyRiskEngineOfLogChange(overwrittenRecordPtr, activityLogBuffer.records[insertIndex]);
 }
 
 // ============================================================
@@ -179,22 +201,30 @@ string formatTimestamp(time_t timestamp) {
     return string(buffer);
 }
 
+// Builds one formatted log line for display or export using a string buffer.
+string buildLogRecordLine(const LoggerRecord& record, int displayIndex) {
+    ostringstream lineBuffer;
+    lineBuffer << "[" << displayIndex << "] "
+               << formatTimestamp(record.timestamp)
+               << " | Learner " << record.learnerID
+               << " | S" << record.sessionID
+               << " Act" << record.activityID
+               << " | " << record.topic
+               << " | Score: " << record.score << "%"
+               << " | " << (record.failed ? "FAIL" : "PASS")
+               << " | Diff: " << record.difficulty << "/5";
+    return lineBuffer.str();
+}
+
 // Displays a single log record with a display index number.
-void displaySingleLogRecord(LoggerRecord record, int displayIndex) {
-    cout << "[" << displayIndex << "] "
-         << formatTimestamp(record.timestamp)
-         << " | Learner " << record.learnerID
-         << " | S" << record.sessionID
-         << " Act" << record.activityID
-         << " | " << record.topic
-         << " | Score: " << record.score << "%"
-         << " | " << (record.failed ? "FAIL" : "PASS")
-         << " | Diff: " << record.difficulty << "/5"
-         << endl;
+void displaySingleLogRecord(const LoggerRecord& record, int displayIndex) {
+    cout << buildLogRecordLine(record, displayIndex) << endl;
 }
 
 // Displays all log records currently in the circular buffer.
 void viewAllActivityLogs() {
+    ensureActivityLoggerInitialized();
+
     if (activityLogBuffer.count == 0) {
         cout << "No activity logs recorded yet." << endl;
         return;
@@ -210,18 +240,20 @@ void viewAllActivityLogs() {
 
 // Filters and displays log records for a specific learner ID.
 void filterLogsByLearnerID() {
+    ensureActivityLoggerInitialized();
+
     int targetLearnerID;
     cout << "Enter Learner ID to filter: ";
     cin >> targetLearnerID;
 
     LogIndexNode* node = findLearnerIndexNode(targetLearnerID);
-    if (node == NULL || node->count == 0) {
+    if (node == nullptr || node->count == 0) {
         cout << "No logs found for Learner " << targetLearnerID << "." << endl;
         return;
     }
 
     Learner* learner = findLearnerByID(targetLearnerID);
-    string learnerName = (learner != NULL) ? learner->name : "Unknown";
+    string learnerName = (learner != nullptr) ? learner->name : "Unknown";
 
     cout << "\n===== LOGS FOR LEARNER " << targetLearnerID
          << " (" << learnerName << ") - " << node->count << " records =====" << endl;
@@ -236,18 +268,38 @@ void filterLogsByLearnerID() {
 //  EXPORT TO FILE
 // ============================================================
 
-// Exports all activity logs to a timestamped text file in the Dataset folder.
+// Builds the full export text in memory before writing it to disk.
+string buildActivityLogExportText(time_t exportTimestamp) {
+    ostringstream exportBuffer;
+
+    exportBuffer << "===== ACTIVITY LOG EXPORT =====" << '\n';
+    exportBuffer << "Exported at: " << formatTimestamp(exportTimestamp) << '\n';
+    exportBuffer << "Total records: " << activityLogBuffer.count << '\n';
+    exportBuffer << "===============================" << '\n' << '\n';
+
+    int index = activityLogBuffer.head;
+    for (int i = 0; i < activityLogBuffer.count; i++) {
+        exportBuffer << buildLogRecordLine(activityLogBuffer.records[index], i + 1) << '\n';
+        index = (index + 1) % LOG_BUFFER_CAPACITY;
+    }
+
+    return exportBuffer.str();
+}
+
+// Exports all activity logs to a timestamped text file.
 void exportActivityLogsToFile() {
+    ensureActivityLoggerInitialized();
+
     if (activityLogBuffer.count == 0) {
         cout << "No logs to export." << endl;
         return;
     }
 
     // Build a timestamped filename.
-    time_t now = time(NULL);
+    time_t now = time(nullptr);
     struct tm* timeInfo = localtime(&now);
     char filename[128];
-    strftime(filename, sizeof(filename), "Dataset/logs_%Y%m%d_%H%M%S.txt", timeInfo);
+    strftime(filename, sizeof(filename), "logs_%Y%m%d_%H%M%S.txt", timeInfo);
 
     ofstream outFile(filename);
     if (!outFile.is_open()) {
@@ -255,26 +307,8 @@ void exportActivityLogsToFile() {
         return;
     }
 
-    outFile << "===== ACTIVITY LOG EXPORT =====" << endl;
-    outFile << "Exported at: " << formatTimestamp(now) << endl;
-    outFile << "Total records: " << activityLogBuffer.count << endl;
-    outFile << "===============================" << endl << endl;
-
-    int index = activityLogBuffer.head;
-    for (int i = 0; i < activityLogBuffer.count; i++) {
-        LoggerRecord record = activityLogBuffer.records[index];
-        outFile << "[" << (i + 1) << "] "
-                << formatTimestamp(record.timestamp)
-                << " | Learner " << record.learnerID
-                << " | S" << record.sessionID
-                << " Act" << record.activityID
-                << " | " << record.topic
-                << " | Score: " << record.score << "%"
-                << " | " << (record.failed ? "FAIL" : "PASS")
-                << " | Diff: " << record.difficulty << "/5"
-                << endl;
-        index = (index + 1) % LOG_BUFFER_CAPACITY;
-    }
+    string exportText = buildActivityLogExportText(now);
+    outFile << exportText;
 
     outFile.close();
     cout << "Logs exported to " << filename << " successfully." << endl;
@@ -303,10 +337,12 @@ static const int mockActivityDifficulties[][6] = {
 
 // Generates randomized mock activity log data using registered learners.
 void generateMockActivityLogs() {
-    srand((unsigned int)time(NULL));
+    ensureActivityLoggerInitialized();
+
+    srand((unsigned int)time(nullptr));
 
     Learner* current = learnerLL.getHead();
-    if (current == NULL) {
+    if (current == nullptr) {
         cout << "No learners registered. Cannot generate mock logs." << endl;
         return;
     }
@@ -314,7 +350,7 @@ void generateMockActivityLogs() {
     // Collect all learner IDs into a fixed-size array.
     int learnerIDs[100];
     int learnerCount = 0;
-    while (current != NULL && learnerCount < 100) {
+    while (current != nullptr && learnerCount < 100) {
         learnerIDs[learnerCount] = current->id;
         learnerCount++;
         current = current->next;
@@ -348,16 +384,19 @@ void generateMockActivityLogs() {
 
 // Returns a pointer to the global activity log buffer.
 ActivityLogBuffer* getActivityLogBuffer() {
+    ensureActivityLoggerInitialized();
     return &activityLogBuffer;
 }
 
 // Returns the current number of records in the log buffer.
 int getActivityLogCount() {
+    ensureActivityLoggerInitialized();
     return activityLogBuffer.count;
 }
 
 // Returns the current head index of the log buffer.
 int getActivityLogHead() {
+    ensureActivityLoggerInitialized();
     return activityLogBuffer.head;
 }
 
@@ -367,11 +406,7 @@ int getActivityLogHead() {
 
 // Main entry point for the Activity Logger module.
 void initializeActivityLogger() {
-    initializeActivityLogBuffer();
-    initializeLearnerLogIndex();
-
-    // Generate mock data on startup so there are records to view.
-    generateMockActivityLogs();
+    ensureActivityLoggerInitialized();
 
     int choice;
     while (true) {

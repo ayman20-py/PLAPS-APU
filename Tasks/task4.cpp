@@ -4,8 +4,8 @@
  *  Author: Omar
  *  Description: Reads activity logs from Task 3's circular
  *  buffer, calculates risk scores for learners, ranks them
- *  using a max-heap, generates recommendations, and exports
- *  CSV reports.
+ *  using a max-heap, updates dynamically when new logs arrive,
+ *  generates rule-based recommendations, and exports CSV reports.
  * ============================================================
  */
 
@@ -17,12 +17,12 @@
 #include <cmath>
 #include <cstdlib>
 #include <limits>
+#include "datastructures.h"
 
 // External references to shared data.
 extern LearnerLinkedList learnerLL;
 extern ActivityLogBuffer activityLogBuffer;
 Learner* findLearnerByID(int id);
-void generateMockActivityLogs();
 
 // ============================================================
 //  NAMED CONSTANTS
@@ -48,9 +48,12 @@ const double MONITOR_RISK_THRESHOLD = 0.5;
 const int STATISTICS_MAP_CAPACITY = 127;
 const int RISK_HEAP_CAPACITY = 100;
 const int HEAP_INDEX_MAP_CAPACITY = 127;
+const int RISK_SCORE_CACHE_CAPACITY = 127;
+const int RECOMMENDATION_RULE_COUNT = 7;
 
-// Sentinel value indicating an empty hash map slot.
+// Sentinel values.
 const int EMPTY_SLOT_SENTINEL = -1;
+const int NO_HEAP_POSITION = -1;
 
 // ============================================================
 //  LEARNER STATISTICS (OPEN-ADDRESSING HASH MAP)
@@ -62,7 +65,7 @@ struct LearnerStatistics {
     int totalScore;
     int totalAttempts;
     int failedAttempts;
-    int scores[200];
+    int scores[LOG_BUFFER_CAPACITY];
     int scoreCount;
     time_t lastActivityTimestamp;
     bool occupied;
@@ -110,96 +113,222 @@ struct HeapIndexHashMap {
     HeapIndexEntry entries[HEAP_INDEX_MAP_CAPACITY];
 };
 
-// Global instances of task 4 data structures.
+// ============================================================
+//  RISK SCORE CACHE (OPEN-ADDRESSING HASH MAP)
+// ============================================================
+
+// Caches the latest computed risk profile for each learner.
+struct RiskScoreCacheEntry {
+    int learnerID;
+    double riskScore;
+    double averageScore;
+    double failureRate;
+    double scoreVariance;
+    int inactivityDays;
+    string recommendation;
+    bool occupied;
+    bool hasCurrentData;
+};
+
+// Open-addressing hash map for cached risk profiles.
+struct RiskScoreCacheHashMap {
+    RiskScoreCacheEntry entries[RISK_SCORE_CACHE_CAPACITY];
+};
+
+// ============================================================
+//  RECOMMENDATION RULES (ARRAY OF STRUCTS)
+// ============================================================
+
+enum RecommendationRuleType {
+    RULE_CRITICAL_RISK,
+    RULE_HIGH_FAILURE,
+    RULE_LOW_AVERAGE,
+    RULE_HIGH_VARIANCE,
+    RULE_INACTIVITY,
+    RULE_MODERATE_COMBO,
+    RULE_MONITOR
+};
+
+struct RecommendationRule {
+    RecommendationRuleType type;
+    const char* message;
+};
+
+const RecommendationRule recommendationRules[RECOMMENDATION_RULE_COUNT] = {
+    {RULE_CRITICAL_RISK, "CRITICAL: Immediate intervention required."},
+    {RULE_HIGH_FAILURE, "Revisit foundational topics. Consider restarting from Session 1."},
+    {RULE_LOW_AVERAGE, "Schedule one-on-one tutoring session with instructor."},
+    {RULE_HIGH_VARIANCE, "Performance is inconsistent. Focus on weaker activity types."},
+    {RULE_INACTIVITY, "Learner is inactive. Send engagement reminder."},
+    {RULE_MODERATE_COMBO, "At moderate risk. Assign supplementary practice activities."},
+    {RULE_MONITOR, "Monitor closely. Review progress weekly."}
+};
+
+// Global instances of Task 4 data structures.
 LearnerStatisticsHashMap learnerStatisticsMap;
 RiskMaxHeap riskMaxHeap;
 HeapIndexHashMap heapIndexMap;
+RiskScoreCacheHashMap riskScoreCache;
+bool riskEngineInitialized = false;
 
 // ============================================================
-//  HASH MAP OPERATIONS (LEARNER STATISTICS)
+//  COMMON HELPERS
 // ============================================================
 
 // Computes a hash index for the given key using modular arithmetic.
-int computeStatisticsHashIndex(int key, int capacity) {
+int computeHashIndex(int key, int capacity) {
     int hashValue = key % capacity;
     if (hashValue < 0) hashValue += capacity;
     return hashValue;
 }
 
-// Initializes all slots in the learner statistics hash map as empty.
-void initializeLearnerStatisticsHashMap() {
+// Clears the aggregated values for a learner statistics entry.
+void clearLearnerStatisticsData(LearnerStatistics& entry) {
+    entry.totalScore = 0;
+    entry.totalAttempts = 0;
+    entry.failedAttempts = 0;
+    entry.scoreCount = 0;
+    entry.lastActivityTimestamp = 0;
+
+    for (int i = 0; i < LOG_BUFFER_CAPACITY; i++) {
+        entry.scores[i] = 0;
+    }
+}
+
+// Initializes Task 4 structures once so they can react to new log data immediately.
+void ensureRiskEngineInitialized() {
+    if (riskEngineInitialized) {
+        return;
+    }
+
     for (int i = 0; i < STATISTICS_MAP_CAPACITY; i++) {
         learnerStatisticsMap.entries[i].learnerID = EMPTY_SLOT_SENTINEL;
-        learnerStatisticsMap.entries[i].totalScore = 0;
-        learnerStatisticsMap.entries[i].totalAttempts = 0;
-        learnerStatisticsMap.entries[i].failedAttempts = 0;
-        learnerStatisticsMap.entries[i].scoreCount = 0;
-        learnerStatisticsMap.entries[i].lastActivityTimestamp = 0;
         learnerStatisticsMap.entries[i].occupied = false;
+        clearLearnerStatisticsData(learnerStatisticsMap.entries[i]);
+    }
+
+    riskMaxHeap.size = 0;
+
+    for (int i = 0; i < HEAP_INDEX_MAP_CAPACITY; i++) {
+        heapIndexMap.entries[i].learnerID = EMPTY_SLOT_SENTINEL;
+        heapIndexMap.entries[i].heapPosition = NO_HEAP_POSITION;
+        heapIndexMap.entries[i].occupied = false;
+    }
+
+    for (int i = 0; i < RISK_SCORE_CACHE_CAPACITY; i++) {
+        riskScoreCache.entries[i].learnerID = EMPTY_SLOT_SENTINEL;
+        riskScoreCache.entries[i].riskScore = 0.0;
+        riskScoreCache.entries[i].averageScore = 0.0;
+        riskScoreCache.entries[i].failureRate = 0.0;
+        riskScoreCache.entries[i].scoreVariance = 0.0;
+        riskScoreCache.entries[i].inactivityDays = 0;
+        riskScoreCache.entries[i].recommendation = "";
+        riskScoreCache.entries[i].occupied = false;
+        riskScoreCache.entries[i].hasCurrentData = false;
+    }
+
+    riskEngineInitialized = true;
+}
+
+// ============================================================
+//  HASH MAP OPERATIONS (LEARNER STATISTICS)
+// ============================================================
+
+// Initializes all slots in the learner statistics hash map as empty.
+void initializeLearnerStatisticsHashMap() {
+    ensureRiskEngineInitialized();
+
+    for (int i = 0; i < STATISTICS_MAP_CAPACITY; i++) {
+        learnerStatisticsMap.entries[i].learnerID = EMPTY_SLOT_SENTINEL;
+        learnerStatisticsMap.entries[i].occupied = false;
+        clearLearnerStatisticsData(learnerStatisticsMap.entries[i]);
     }
 }
 
-// Inserts or updates a learner's statistics in the hash map.
-void insertOrUpdateLearnerStatistics(int learnerID, int score, bool failed, time_t timestamp) {
-    int index = computeStatisticsHashIndex(learnerID, STATISTICS_MAP_CAPACITY);
-    int startIndex = index;
-
-    // Linear probing to find the correct slot.
-    while (true) {
-        if (!learnerStatisticsMap.entries[index].occupied) {
-            // Empty slot found. Insert new entry.
-            learnerStatisticsMap.entries[index].learnerID = learnerID;
-            learnerStatisticsMap.entries[index].totalScore = score;
-            learnerStatisticsMap.entries[index].totalAttempts = 1;
-            learnerStatisticsMap.entries[index].failedAttempts = failed ? 1 : 0;
-            learnerStatisticsMap.entries[index].scores[0] = score;
-            learnerStatisticsMap.entries[index].scoreCount = 1;
-            learnerStatisticsMap.entries[index].lastActivityTimestamp = timestamp;
-            learnerStatisticsMap.entries[index].occupied = true;
-            return;
-        }
-        if (learnerStatisticsMap.entries[index].learnerID == learnerID) {
-            // Existing entry found. Update statistics.
-            learnerStatisticsMap.entries[index].totalScore += score;
-            learnerStatisticsMap.entries[index].totalAttempts++;
-            if (failed) {
-                learnerStatisticsMap.entries[index].failedAttempts++;
-            }
-            int scoreIndex = learnerStatisticsMap.entries[index].scoreCount;
-            if (scoreIndex < 200) {
-                learnerStatisticsMap.entries[index].scores[scoreIndex] = score;
-                learnerStatisticsMap.entries[index].scoreCount++;
-            }
-            if (timestamp > learnerStatisticsMap.entries[index].lastActivityTimestamp) {
-                learnerStatisticsMap.entries[index].lastActivityTimestamp = timestamp;
-            }
-            return;
-        }
-        index = (index + 1) % STATISTICS_MAP_CAPACITY;
-        if (index == startIndex) {
-            // Hash map is full. This should not happen with proper sizing.
-            cout << "Warning: Learner statistics hash map is full." << endl;
-            return;
-        }
-    }
-}
-
-// Looks up a learner's statistics by ID. Returns NULL if not found.
+// Looks up a learner's statistics by ID. Returns nullptr if not found.
 LearnerStatistics* lookupLearnerStatistics(int learnerID) {
-    int index = computeStatisticsHashIndex(learnerID, STATISTICS_MAP_CAPACITY);
+    ensureRiskEngineInitialized();
+
+    int index = computeHashIndex(learnerID, STATISTICS_MAP_CAPACITY);
     int startIndex = index;
 
     while (true) {
         if (!learnerStatisticsMap.entries[index].occupied) {
-            return NULL;
+            return nullptr;
         }
         if (learnerStatisticsMap.entries[index].learnerID == learnerID) {
             return &learnerStatisticsMap.entries[index];
         }
         index = (index + 1) % STATISTICS_MAP_CAPACITY;
         if (index == startIndex) {
-            return NULL;
+            return nullptr;
         }
+    }
+}
+
+// Finds an existing learner statistics entry or creates a new one.
+LearnerStatistics* findOrCreateLearnerStatistics(int learnerID) {
+    ensureRiskEngineInitialized();
+
+    int index = computeHashIndex(learnerID, STATISTICS_MAP_CAPACITY);
+    int startIndex = index;
+
+    while (true) {
+        if (!learnerStatisticsMap.entries[index].occupied) {
+            learnerStatisticsMap.entries[index].learnerID = learnerID;
+            learnerStatisticsMap.entries[index].occupied = true;
+            clearLearnerStatisticsData(learnerStatisticsMap.entries[index]);
+            return &learnerStatisticsMap.entries[index];
+        }
+        if (learnerStatisticsMap.entries[index].learnerID == learnerID) {
+            return &learnerStatisticsMap.entries[index];
+        }
+        index = (index + 1) % STATISTICS_MAP_CAPACITY;
+        if (index == startIndex) {
+            cout << "Warning: Learner statistics hash map is full." << endl;
+            return nullptr;
+        }
+    }
+}
+
+// Appends a log record's values into a learner's aggregated statistics.
+void appendRecordToLearnerStatistics(LearnerStatistics* stats, const LoggerRecord& record) {
+    if (stats == nullptr) {
+        return;
+    }
+
+    stats->totalScore += record.score;
+    stats->totalAttempts++;
+    if (record.failed) {
+        stats->failedAttempts++;
+    }
+    if (stats->scoreCount < LOG_BUFFER_CAPACITY) {
+        stats->scores[stats->scoreCount] = record.score;
+        stats->scoreCount++;
+    }
+    if (record.timestamp > stats->lastActivityTimestamp) {
+        stats->lastActivityTimestamp = record.timestamp;
+    }
+}
+
+// Rebuilds one learner's statistics from the current circular buffer contents.
+void rebuildLearnerStatisticsFromLogs(int learnerID) {
+    ensureRiskEngineInitialized();
+
+    LearnerStatistics* stats = findOrCreateLearnerStatistics(learnerID);
+    if (stats == nullptr) {
+        return;
+    }
+
+    clearLearnerStatisticsData(*stats);
+
+    int index = activityLogBuffer.head;
+    for (int i = 0; i < activityLogBuffer.count; i++) {
+        const LoggerRecord& record = activityLogBuffer.records[index];
+        if (record.learnerID == learnerID) {
+            appendRecordToLearnerStatistics(stats, record);
+        }
+        index = (index + 1) % LOG_BUFFER_CAPACITY;
     }
 }
 
@@ -209,16 +338,18 @@ LearnerStatistics* lookupLearnerStatistics(int learnerID) {
 
 // Initializes all slots in the heap index hash map as empty.
 void initializeHeapIndexHashMap() {
+    ensureRiskEngineInitialized();
+
     for (int i = 0; i < HEAP_INDEX_MAP_CAPACITY; i++) {
         heapIndexMap.entries[i].learnerID = EMPTY_SLOT_SENTINEL;
-        heapIndexMap.entries[i].heapPosition = -1;
+        heapIndexMap.entries[i].heapPosition = NO_HEAP_POSITION;
         heapIndexMap.entries[i].occupied = false;
     }
 }
 
 // Inserts or updates a learner's heap position in the index map.
 void insertOrUpdateHeapIndex(int learnerID, int heapPosition) {
-    int index = computeStatisticsHashIndex(learnerID, HEAP_INDEX_MAP_CAPACITY);
+    int index = computeHashIndex(learnerID, HEAP_INDEX_MAP_CAPACITY);
     int startIndex = index;
 
     while (true) {
@@ -233,24 +364,120 @@ void insertOrUpdateHeapIndex(int learnerID, int heapPosition) {
             return;
         }
         index = (index + 1) % HEAP_INDEX_MAP_CAPACITY;
-        if (index == startIndex) return;
+        if (index == startIndex) {
+            return;
+        }
     }
 }
 
 // Looks up a learner's current position in the heap. Returns -1 if not found.
 int lookupHeapIndex(int learnerID) {
-    int index = computeStatisticsHashIndex(learnerID, HEAP_INDEX_MAP_CAPACITY);
+    int index = computeHashIndex(learnerID, HEAP_INDEX_MAP_CAPACITY);
     int startIndex = index;
 
     while (true) {
         if (!heapIndexMap.entries[index].occupied) {
-            return -1;
+            return NO_HEAP_POSITION;
         }
         if (heapIndexMap.entries[index].learnerID == learnerID) {
             return heapIndexMap.entries[index].heapPosition;
         }
         index = (index + 1) % HEAP_INDEX_MAP_CAPACITY;
-        if (index == startIndex) return -1;
+        if (index == startIndex) {
+            return NO_HEAP_POSITION;
+        }
+    }
+}
+
+// ============================================================
+//  RISK SCORE CACHE HASH MAP OPERATIONS
+// ============================================================
+
+// Initializes all slots in the risk score cache hash map as empty.
+void initializeRiskScoreCacheHashMap() {
+    ensureRiskEngineInitialized();
+
+    for (int i = 0; i < RISK_SCORE_CACHE_CAPACITY; i++) {
+        riskScoreCache.entries[i].learnerID = EMPTY_SLOT_SENTINEL;
+        riskScoreCache.entries[i].riskScore = 0.0;
+        riskScoreCache.entries[i].averageScore = 0.0;
+        riskScoreCache.entries[i].failureRate = 0.0;
+        riskScoreCache.entries[i].scoreVariance = 0.0;
+        riskScoreCache.entries[i].inactivityDays = 0;
+        riskScoreCache.entries[i].recommendation = "";
+        riskScoreCache.entries[i].occupied = false;
+        riskScoreCache.entries[i].hasCurrentData = false;
+    }
+}
+
+// Looks up a learner's cached risk profile. Returns nullptr if unavailable.
+RiskScoreCacheEntry* lookupRiskScoreCache(int learnerID) {
+    ensureRiskEngineInitialized();
+
+    int index = computeHashIndex(learnerID, RISK_SCORE_CACHE_CAPACITY);
+    int startIndex = index;
+
+    while (true) {
+        if (!riskScoreCache.entries[index].occupied) {
+            return nullptr;
+        }
+        if (riskScoreCache.entries[index].learnerID == learnerID) {
+            if (riskScoreCache.entries[index].hasCurrentData) {
+                return &riskScoreCache.entries[index];
+            }
+            return nullptr;
+        }
+        index = (index + 1) % RISK_SCORE_CACHE_CAPACITY;
+        if (index == startIndex) {
+            return nullptr;
+        }
+    }
+}
+
+// Inserts or updates the cached risk profile for a learner.
+void insertOrUpdateRiskScoreCache(const RiskHeapEntry& entry) {
+    int index = computeHashIndex(entry.learnerID, RISK_SCORE_CACHE_CAPACITY);
+    int startIndex = index;
+
+    while (true) {
+        if (!riskScoreCache.entries[index].occupied ||
+            riskScoreCache.entries[index].learnerID == entry.learnerID) {
+            riskScoreCache.entries[index].learnerID = entry.learnerID;
+            riskScoreCache.entries[index].riskScore = entry.riskScore;
+            riskScoreCache.entries[index].averageScore = entry.averageScore;
+            riskScoreCache.entries[index].failureRate = entry.failureRate;
+            riskScoreCache.entries[index].scoreVariance = entry.scoreVariance;
+            riskScoreCache.entries[index].inactivityDays = entry.inactivityDays;
+            riskScoreCache.entries[index].recommendation = entry.recommendation;
+            riskScoreCache.entries[index].occupied = true;
+            riskScoreCache.entries[index].hasCurrentData = true;
+            return;
+        }
+        index = (index + 1) % RISK_SCORE_CACHE_CAPACITY;
+        if (index == startIndex) {
+            return;
+        }
+    }
+}
+
+// Marks a cached learner profile as stale when they no longer appear in the log buffer.
+void invalidateRiskScoreCache(int learnerID) {
+    int index = computeHashIndex(learnerID, RISK_SCORE_CACHE_CAPACITY);
+    int startIndex = index;
+
+    while (true) {
+        if (!riskScoreCache.entries[index].occupied) {
+            return;
+        }
+        if (riskScoreCache.entries[index].learnerID == learnerID) {
+            riskScoreCache.entries[index].hasCurrentData = false;
+            riskScoreCache.entries[index].recommendation = "";
+            return;
+        }
+        index = (index + 1) % RISK_SCORE_CACHE_CAPACITY;
+        if (index == startIndex) {
+            return;
+        }
     }
 }
 
@@ -260,19 +487,20 @@ int lookupHeapIndex(int learnerID) {
 
 // Calculates the average score for a learner from their statistics.
 double calculateAverageScore(LearnerStatistics* stats) {
-    if (stats->totalAttempts == 0) return 0.0;
+    if (stats == nullptr || stats->totalAttempts == 0) return 0.0;
     return (double)stats->totalScore / stats->totalAttempts;
 }
 
 // Calculates the failure rate (failed attempts / total attempts).
 double calculateFailureRate(LearnerStatistics* stats) {
-    if (stats->totalAttempts == 0) return 0.0;
+    if (stats == nullptr || stats->totalAttempts == 0) return 0.0;
     return (double)stats->failedAttempts / stats->totalAttempts;
 }
 
 // Calculates the variance of the learner's scores.
 double calculateScoreVariance(LearnerStatistics* stats) {
-    if (stats->scoreCount < 2) return 0.0;
+    if (stats == nullptr || stats->scoreCount < 2) return 0.0;
+
     double average = calculateAverageScore(stats);
     double sumSquaredDifferences = 0.0;
     for (int i = 0; i < stats->scoreCount; i++) {
@@ -284,10 +512,19 @@ double calculateScoreVariance(LearnerStatistics* stats) {
 
 // Calculates the number of days since the learner's last activity.
 int calculateInactivityDays(LearnerStatistics* stats) {
-    if (stats->lastActivityTimestamp == 0) return 30;
-    time_t now = time(NULL);
+    if (stats == nullptr || stats->lastActivityTimestamp == 0) return 30;
+
+    time_t now = time(nullptr);
     double secondsDifference = difftime(now, stats->lastActivityTimestamp);
     return (int)(secondsDifference / 86400.0);
+}
+
+// Normalizes score variance to the range [0, 1].
+double normalizeScoreVariance(double scoreVariance) {
+    double varianceNormalized = scoreVariance / 2500.0;
+    if (varianceNormalized > 1.0) varianceNormalized = 1.0;
+    if (varianceNormalized < 0.0) varianceNormalized = 0.0;
+    return varianceNormalized;
 }
 
 // Computes the composite risk score using the weighted formula.
@@ -297,17 +534,9 @@ double calculateCompositeRiskScore(LearnerStatistics* stats) {
     double scoreVariance = calculateScoreVariance(stats);
     int inactivityDays = calculateInactivityDays(stats);
 
-    // Component 1: Low average score contributes to risk.
     double averageScoreComponent = (100.0 - averageScore) / 100.0;
-
-    // Component 2: High failure rate contributes to risk.
     double failureRateComponent = failureRate;
-
-    // Component 3: High variance (inconsistent performance) contributes to risk.
-    double varianceComponent = scoreVariance / 2500.0;
-    if (varianceComponent > 1.0) varianceComponent = 1.0;
-
-    // Component 4: Long inactivity contributes to risk.
+    double varianceComponent = normalizeScoreVariance(scoreVariance);
     double inactivityComponent = (double)inactivityDays / 30.0;
     if (inactivityComponent > 1.0) inactivityComponent = 1.0;
 
@@ -316,11 +545,54 @@ double calculateCompositeRiskScore(LearnerStatistics* stats) {
                      + WEIGHT_SCORE_VARIANCE * varianceComponent
                      + WEIGHT_INACTIVITY_DAYS * inactivityComponent;
 
-    // Clamp the final score to the range [0, 1].
     if (riskScore < 0.0) riskScore = 0.0;
     if (riskScore > 1.0) riskScore = 1.0;
 
     return riskScore;
+}
+
+// ============================================================
+//  RECOMMENDATION ENGINE
+// ============================================================
+
+// Checks whether a recommendation rule matches the learner's risk profile.
+bool doesRecommendationRuleMatch(const RecommendationRule& rule, double riskScore,
+                                 double averageScore, double failureRate,
+                                 double varianceNormalized, int inactivityDays) {
+    switch (rule.type) {
+        case RULE_CRITICAL_RISK:
+            return riskScore >= CRITICAL_RISK_THRESHOLD;
+        case RULE_HIGH_FAILURE:
+            return failureRate >= HIGH_FAILURE_RATE_THRESHOLD;
+        case RULE_LOW_AVERAGE:
+            return averageScore < LOW_AVERAGE_SCORE_THRESHOLD;
+        case RULE_HIGH_VARIANCE:
+            return varianceNormalized > HIGH_VARIANCE_THRESHOLD;
+        case RULE_INACTIVITY:
+            return inactivityDays > INACTIVITY_DAYS_THRESHOLD;
+        case RULE_MODERATE_COMBO:
+            return failureRate >= MODERATE_FAILURE_RATE_THRESHOLD &&
+                   averageScore < MODERATE_AVERAGE_SCORE_THRESHOLD;
+        case RULE_MONITOR:
+            return riskScore >= MONITOR_RISK_THRESHOLD;
+        default:
+            return false;
+    }
+}
+
+// Generates a recommendation string from the array of rule structs.
+string generateRecommendation(double riskScore, double averageScore,
+                              double failureRate, double varianceNormalized,
+                              int inactivityDays) {
+    for (int i = 0; i < RECOMMENDATION_RULE_COUNT; i++) {
+        if (doesRecommendationRuleMatch(
+                recommendationRules[i], riskScore, averageScore,
+                failureRate, varianceNormalized, inactivityDays)) {
+            return recommendationRules[i].message;
+        }
+    }
+
+    return "On track. Continue current learning path.";
 }
 
 // ============================================================
@@ -338,7 +610,6 @@ void swapHeapEntries(int indexA, int indexB) {
     riskMaxHeap.entries[indexA] = riskMaxHeap.entries[indexB];
     riskMaxHeap.entries[indexB] = temp;
 
-    // Update both entries' positions in the index map.
     insertOrUpdateHeapIndex(riskMaxHeap.entries[indexA].learnerID, indexA);
     insertOrUpdateHeapIndex(riskMaxHeap.entries[indexB].learnerID, indexB);
 }
@@ -381,11 +652,12 @@ void bubbleDownHeapEntry(int index) {
 }
 
 // Inserts a new entry into the max-heap.
-void insertIntoRiskHeap(RiskHeapEntry entry) {
+void insertIntoRiskHeap(const RiskHeapEntry& entry) {
     if (riskMaxHeap.size >= RISK_HEAP_CAPACITY) {
         cout << "Warning: Risk heap is full. Cannot insert learner " << entry.learnerID << "." << endl;
         return;
     }
+
     int insertIndex = riskMaxHeap.size;
     riskMaxHeap.entries[insertIndex] = entry;
     riskMaxHeap.size++;
@@ -393,125 +665,186 @@ void insertIntoRiskHeap(RiskHeapEntry entry) {
     bubbleUpHeapEntry(insertIndex);
 }
 
-// Extracts the entry with the highest risk score from the heap.
-RiskHeapEntry extractHighestRisk() {
-    RiskHeapEntry top = riskMaxHeap.entries[0];
-    riskMaxHeap.size--;
-    if (riskMaxHeap.size > 0) {
-        riskMaxHeap.entries[0] = riskMaxHeap.entries[riskMaxHeap.size];
-        insertOrUpdateHeapIndex(riskMaxHeap.entries[0].learnerID, 0);
-        bubbleDownHeapEntry(0);
+// Removes one learner from the max-heap when they no longer have active risk data.
+void removeLearnerFromRiskHeap(int learnerID) {
+    int removeIndex = lookupHeapIndex(learnerID);
+    if (removeIndex == NO_HEAP_POSITION || removeIndex >= riskMaxHeap.size) {
+        return;
     }
-    return top;
+
+    int lastIndex = riskMaxHeap.size - 1;
+    insertOrUpdateHeapIndex(learnerID, NO_HEAP_POSITION);
+
+    if (removeIndex == lastIndex) {
+        riskMaxHeap.size--;
+        return;
+    }
+
+    riskMaxHeap.entries[removeIndex] = riskMaxHeap.entries[lastIndex];
+    riskMaxHeap.size--;
+    insertOrUpdateHeapIndex(riskMaxHeap.entries[removeIndex].learnerID, removeIndex);
+
+    int parentIndex = (removeIndex - 1) / 2;
+    if (removeIndex > 0 &&
+        riskMaxHeap.entries[removeIndex].riskScore > riskMaxHeap.entries[parentIndex].riskScore) {
+        bubbleUpHeapEntry(removeIndex);
+    } else {
+        bubbleDownHeapEntry(removeIndex);
+    }
 }
 
-// Updates a learner's risk score in the heap and restores heap order.
-void updateLearnerRiskInHeap(int learnerID, double newRiskScore) {
-    int heapPosition = lookupHeapIndex(learnerID);
-    if (heapPosition < 0 || heapPosition >= riskMaxHeap.size) return;
+// Updates a learner's full risk profile inside the heap and restores heap order.
+void updateLearnerRiskInHeap(const RiskHeapEntry& updatedEntry) {
+    int heapPosition = lookupHeapIndex(updatedEntry.learnerID);
+    if (heapPosition == NO_HEAP_POSITION || heapPosition >= riskMaxHeap.size) {
+        return;
+    }
 
     double oldRiskScore = riskMaxHeap.entries[heapPosition].riskScore;
-    riskMaxHeap.entries[heapPosition].riskScore = newRiskScore;
+    riskMaxHeap.entries[heapPosition] = updatedEntry;
+    insertOrUpdateHeapIndex(updatedEntry.learnerID, heapPosition);
 
-    if (newRiskScore > oldRiskScore) {
+    if (updatedEntry.riskScore > oldRiskScore) {
         bubbleUpHeapEntry(heapPosition);
-    } else {
+    } else if (updatedEntry.riskScore < oldRiskScore) {
         bubbleDownHeapEntry(heapPosition);
     }
 }
 
-// ============================================================
-//  RECOMMENDATION ENGINE
-// ============================================================
+// Extracts the highest-risk entry from any heap copy.
+RiskHeapEntry extractHighestRiskFromHeap(RiskMaxHeap& heap) {
+    RiskHeapEntry top = heap.entries[0];
+    heap.size--;
 
-// Generates a recommendation string based on the learner's risk profile.
-// Rules are evaluated top-to-bottom; the first matching rule wins.
-string generateRecommendation(double riskScore, double averageScore,
-                              double failureRate, double varianceNormalized,
-                              int inactivityDays) {
-    if (riskScore >= CRITICAL_RISK_THRESHOLD) {
-        return "CRITICAL: Immediate intervention required.";
+    if (heap.size > 0) {
+        heap.entries[0] = heap.entries[heap.size];
+
+        int index = 0;
+        while (true) {
+            int leftChild = 2 * index + 1;
+            int rightChild = 2 * index + 2;
+            int largest = index;
+
+            if (leftChild < heap.size &&
+                heap.entries[leftChild].riskScore > heap.entries[largest].riskScore) {
+                largest = leftChild;
+            }
+            if (rightChild < heap.size &&
+                heap.entries[rightChild].riskScore > heap.entries[largest].riskScore) {
+                largest = rightChild;
+            }
+            if (largest != index) {
+                RiskHeapEntry swap = heap.entries[index];
+                heap.entries[index] = heap.entries[largest];
+                heap.entries[largest] = swap;
+                index = largest;
+            } else {
+                break;
+            }
+        }
     }
-    if (failureRate >= HIGH_FAILURE_RATE_THRESHOLD) {
-        return "Revisit foundational topics. Consider restarting from Session 1.";
-    }
-    if (averageScore < LOW_AVERAGE_SCORE_THRESHOLD) {
-        return "Schedule one-on-one tutoring session with instructor.";
-    }
-    if (varianceNormalized > HIGH_VARIANCE_THRESHOLD) {
-        return "Performance is inconsistent. Focus on weaker activity types.";
-    }
-    if (inactivityDays > INACTIVITY_DAYS_THRESHOLD) {
-        return "Learner is inactive. Send engagement reminder.";
-    }
-    if (failureRate >= MODERATE_FAILURE_RATE_THRESHOLD && averageScore < MODERATE_AVERAGE_SCORE_THRESHOLD) {
-        return "At moderate risk. Assign supplementary practice activities.";
-    }
-    if (riskScore >= MONITOR_RISK_THRESHOLD) {
-        return "Monitor closely. Review progress weekly.";
-    }
-    return "On track. Continue current learning path.";
+
+    return top;
 }
 
 // ============================================================
-//  ORCHESTRATION
+//  RISK PROFILE BUILDING AND SYNCHRONIZATION
 // ============================================================
+
+// Builds one heap entry from a learner's current aggregated statistics.
+RiskHeapEntry buildRiskHeapEntryFromStatistics(LearnerStatistics* stats) {
+    RiskHeapEntry entry;
+
+    double averageScore = calculateAverageScore(stats);
+    double failureRate = calculateFailureRate(stats);
+    double scoreVariance = calculateScoreVariance(stats);
+    int inactivityDays = calculateInactivityDays(stats);
+    double riskScore = calculateCompositeRiskScore(stats);
+    double varianceNormalized = normalizeScoreVariance(scoreVariance);
+
+    entry.learnerID = stats->learnerID;
+    entry.riskScore = riskScore;
+    entry.averageScore = averageScore;
+    entry.failureRate = failureRate;
+    entry.scoreVariance = scoreVariance;
+    entry.inactivityDays = inactivityDays;
+    entry.recommendation = generateRecommendation(
+        riskScore, averageScore, failureRate, varianceNormalized, inactivityDays
+    );
+
+    return entry;
+}
+
+// Recomputes one learner's cached profile and heap entry from the current stats map.
+void refreshRiskEntryForLearner(int learnerID) {
+    LearnerStatistics* stats = lookupLearnerStatistics(learnerID);
+    if (stats == nullptr || stats->totalAttempts == 0) {
+        removeLearnerFromRiskHeap(learnerID);
+        invalidateRiskScoreCache(learnerID);
+        return;
+    }
+
+    RiskHeapEntry updatedEntry = buildRiskHeapEntryFromStatistics(stats);
+    insertOrUpdateRiskScoreCache(updatedEntry);
+
+    int heapPosition = lookupHeapIndex(learnerID);
+    if (heapPosition == NO_HEAP_POSITION) {
+        insertIntoRiskHeap(updatedEntry);
+    } else {
+        updateLearnerRiskInHeap(updatedEntry);
+    }
+}
 
 // Scans all records in the activity log buffer and populates the statistics hash map.
 void processAllLogRecords() {
     initializeLearnerStatisticsHashMap();
 
-    if (activityLogBuffer.count == 0) {
-        cout << "No log records to process." << endl;
-        return;
-    }
-
     int index = activityLogBuffer.head;
     for (int i = 0; i < activityLogBuffer.count; i++) {
-        LoggerRecord record = activityLogBuffer.records[index];
-        insertOrUpdateLearnerStatistics(
-            record.learnerID,
-            record.score,
-            record.failed,
-            record.timestamp
-        );
+        const LoggerRecord& record = activityLogBuffer.records[index];
+        LearnerStatistics* stats = findOrCreateLearnerStatistics(record.learnerID);
+        appendRecordToLearnerStatistics(stats, record);
         index = (index + 1) % LOG_BUFFER_CAPACITY;
     }
 }
 
-// Calculates risk scores for all learners in the statistics map and builds the heap.
+// Calculates risk scores for all learners in the statistics map and builds the heap and cache.
 void buildRiskHeapFromStatistics() {
     initializeRiskMaxHeap();
     initializeHeapIndexHashMap();
+    initializeRiskScoreCacheHashMap();
 
     for (int i = 0; i < STATISTICS_MAP_CAPACITY; i++) {
-        if (!learnerStatisticsMap.entries[i].occupied) continue;
+        if (!learnerStatisticsMap.entries[i].occupied) {
+            continue;
+        }
+        if (learnerStatisticsMap.entries[i].totalAttempts == 0) {
+            continue;
+        }
 
-        LearnerStatistics* stats = &learnerStatisticsMap.entries[i];
-        double averageScore = calculateAverageScore(stats);
-        double failureRate = calculateFailureRate(stats);
-        double scoreVariance = calculateScoreVariance(stats);
-        int inactivityDays = calculateInactivityDays(stats);
-        double riskScore = calculateCompositeRiskScore(stats);
-
-        // Normalize variance to [0, 1] for the recommendation engine.
-        double varianceNormalized = scoreVariance / 2500.0;
-        if (varianceNormalized > 1.0) varianceNormalized = 1.0;
-
-        string recommendation = generateRecommendation(
-            riskScore, averageScore, failureRate, varianceNormalized, inactivityDays
-        );
-
-        RiskHeapEntry entry;
-        entry.learnerID = stats->learnerID;
-        entry.riskScore = riskScore;
-        entry.averageScore = averageScore;
-        entry.failureRate = failureRate;
-        entry.scoreVariance = scoreVariance;
-        entry.inactivityDays = inactivityDays;
-        entry.recommendation = recommendation;
-
+        RiskHeapEntry entry = buildRiskHeapEntryFromStatistics(&learnerStatisticsMap.entries[i]);
         insertIntoRiskHeap(entry);
+        insertOrUpdateRiskScoreCache(entry);
+    }
+}
+
+// Rebuilds all statistics, heap state, and cache directly from Task 3's circular buffer.
+void synchronizeRiskEngineWithLogs() {
+    ensureRiskEngineInitialized();
+    processAllLogRecords();
+    buildRiskHeapFromStatistics();
+}
+
+// Updates only the affected learners when Task 3 appends a new log record.
+void notifyRiskEngineOfLogChange(const LoggerRecord* overwrittenRecord, const LoggerRecord& newRecord) {
+    ensureRiskEngineInitialized();
+
+    rebuildLearnerStatisticsFromLogs(newRecord.learnerID);
+    refreshRiskEntryForLearner(newRecord.learnerID);
+
+    if (overwrittenRecord != nullptr && overwrittenRecord->learnerID != newRecord.learnerID) {
+        rebuildLearnerStatisticsFromLogs(overwrittenRecord->learnerID);
+        refreshRiskEntryForLearner(overwrittenRecord->learnerID);
     }
 }
 
@@ -521,69 +854,47 @@ void buildRiskHeapFromStatistics() {
 
 // Displays the top N at-risk learners without destroying the heap.
 void displayTopAtRiskLearners() {
+    ensureRiskEngineInitialized();
+
     if (riskMaxHeap.size == 0) {
-        cout << "No risk data available. Run 'Update Risk Scores' first." << endl;
+        cout << "No risk data available." << endl;
         return;
     }
 
     int topN;
     cout << "How many top at-risk learners to display? ";
-    cin >> topN;
+    if (!(cin >> topN)) {
+        cin.clear();
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        cout << "Invalid input. Please enter a number." << endl;
+        return;
+    }
+
     if (topN <= 0) {
         cout << "Invalid number." << endl;
         return;
     }
-    if (topN > riskMaxHeap.size) topN = riskMaxHeap.size;
-
-    // Create a temporary copy of the heap so we can extract without destroying the original.
-    RiskMaxHeap tempHeap;
-    for (int i = 0; i < riskMaxHeap.size; i++) {
-        tempHeap.entries[i] = riskMaxHeap.entries[i];
+    if (topN > riskMaxHeap.size) {
+        topN = riskMaxHeap.size;
     }
-    tempHeap.size = riskMaxHeap.size;
+
+    RiskMaxHeap tempHeap = riskMaxHeap;
 
     cout << "\n===== TOP " << topN << " AT-RISK LEARNERS =====" << endl;
     cout << "Rank | ID   | Name            | Risk Score | Avg Score | Fail Rate | Recommendation" << endl;
     cout << "-----+------+-----------------+------------+-----------+-----------+----------------------------------" << endl;
 
     for (int rank = 1; rank <= topN; rank++) {
-        // Extract the max from the temporary heap.
-        RiskHeapEntry top = tempHeap.entries[0];
-        tempHeap.size--;
-        if (tempHeap.size > 0) {
-            tempHeap.entries[0] = tempHeap.entries[tempHeap.size];
-            // Bubble down in the temp heap.
-            int idx = 0;
-            while (true) {
-                int left = 2 * idx + 1;
-                int right = 2 * idx + 2;
-                int largest = idx;
-                if (left < tempHeap.size && tempHeap.entries[left].riskScore > tempHeap.entries[largest].riskScore) {
-                    largest = left;
-                }
-                if (right < tempHeap.size && tempHeap.entries[right].riskScore > tempHeap.entries[largest].riskScore) {
-                    largest = right;
-                }
-                if (largest != idx) {
-                    RiskHeapEntry swap = tempHeap.entries[idx];
-                    tempHeap.entries[idx] = tempHeap.entries[largest];
-                    tempHeap.entries[largest] = swap;
-                    idx = largest;
-                } else {
-                    break;
-                }
-            }
-        }
-
-        // Look up the learner's name.
+        RiskHeapEntry top = extractHighestRiskFromHeap(tempHeap);
         Learner* learner = findLearnerByID(top.learnerID);
-        string learnerName = (learner != NULL) ? learner->name : "Unknown";
+        string learnerName = (learner != nullptr) ? learner->name : "Unknown";
 
         cout << "  " << rank
              << "  | " << top.learnerID
              << "  | " << learnerName;
-        // Pad the name column.
-        for (int p = learnerName.length(); p < 15; p++) cout << " ";
+        for (int p = (int)learnerName.length(); p < 15; p++) {
+            cout << " ";
+        }
         cout << " | " << (int)(top.riskScore * 100) << "%"
              << "        | " << (int)top.averageScore << "%"
              << "      | " << (int)(top.failureRate * 100) << "%"
@@ -594,44 +905,55 @@ void displayTopAtRiskLearners() {
 
 // Displays a detailed risk profile for an individual learner.
 void displayIndividualRiskProfile() {
+    ensureRiskEngineInitialized();
+
     int targetLearnerID;
     cout << "Enter Learner ID: ";
-    cin >> targetLearnerID;
+    if (!(cin >> targetLearnerID)) {
+        cin.clear();
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        cout << "Invalid input. Please enter a number." << endl;
+        return;
+    }
 
     LearnerStatistics* stats = lookupLearnerStatistics(targetLearnerID);
-    if (stats == NULL) {
+    if (stats == nullptr || stats->totalAttempts == 0) {
+        cout << "No data found for Learner " << targetLearnerID << "." << endl;
+        return;
+    }
+
+    RiskScoreCacheEntry* cachedProfile = lookupRiskScoreCache(targetLearnerID);
+    if (cachedProfile == nullptr) {
+        refreshRiskEntryForLearner(targetLearnerID);
+        cachedProfile = lookupRiskScoreCache(targetLearnerID);
+    }
+    if (cachedProfile == nullptr) {
         cout << "No data found for Learner " << targetLearnerID << "." << endl;
         return;
     }
 
     Learner* learner = findLearnerByID(targetLearnerID);
-    string learnerName = (learner != NULL) ? learner->name : "Unknown";
-
-    double averageScore = calculateAverageScore(stats);
-    double failureRate = calculateFailureRate(stats);
-    double scoreVariance = calculateScoreVariance(stats);
-    int inactivityDays = calculateInactivityDays(stats);
-    double riskScore = calculateCompositeRiskScore(stats);
-    double varianceNormalized = scoreVariance / 2500.0;
-    if (varianceNormalized > 1.0) varianceNormalized = 1.0;
-    string recommendation = generateRecommendation(riskScore, averageScore, failureRate, varianceNormalized, inactivityDays);
+    string learnerName = (learner != nullptr) ? learner->name : "Unknown";
+    double varianceNormalized = normalizeScoreVariance(cachedProfile->scoreVariance);
 
     cout << "\n===== RISK PROFILE: LEARNER " << targetLearnerID << " =====" << endl;
-    cout << "Name:                " << learnerName << endl;
-    cout << "Total Attempts:      " << stats->totalAttempts << endl;
-    cout << "Average Score:       " << (int)averageScore << "%" << endl;
-    cout << "Failure Rate:        " << (int)(failureRate * 100) << "%" << endl;
-    cout << "Score Variance:      " << (int)scoreVariance << endl;
-    cout << "Days Inactive:       " << inactivityDays << endl;
-    cout << "Composite Risk Score:" << (int)(riskScore * 100) << "%" << endl;
+    cout << "Name:                 " << learnerName << endl;
+    cout << "Total Attempts:       " << stats->totalAttempts << endl;
+    cout << "Average Score:        " << (int)cachedProfile->averageScore << "%" << endl;
+    cout << "Failure Rate:         " << (int)(cachedProfile->failureRate * 100) << "%" << endl;
+    cout << "Score Variance:       " << (int)cachedProfile->scoreVariance << endl;
+    cout << "Days Inactive:        " << cachedProfile->inactivityDays << endl;
+    cout << "Composite Risk Score: " << (int)(cachedProfile->riskScore * 100) << "%" << endl;
     cout << endl;
     cout << "Risk Score Breakdown:" << endl;
-    cout << "  Avg Score Component  (30%): " << (int)(((100.0 - averageScore) / 100.0) * 100) << "%" << endl;
-    cout << "  Failure Rate Component(35%): " << (int)(failureRate * 100) << "%" << endl;
-    cout << "  Variance Component   (20%): " << (int)(varianceNormalized * 100) << "%" << endl;
-    cout << "  Inactivity Component (15%): " << (int)(((double)inactivityDays / 30.0 > 1.0 ? 1.0 : (double)inactivityDays / 30.0) * 100) << "%" << endl;
+    cout << "  Avg Score Component   (30%): " << (int)(((100.0 - cachedProfile->averageScore) / 100.0) * 100) << "%" << endl;
+    cout << "  Failure Rate Component(35%): " << (int)(cachedProfile->failureRate * 100) << "%" << endl;
+    cout << "  Variance Component    (20%): " << (int)(varianceNormalized * 100) << "%" << endl;
+    cout << "  Inactivity Component  (15%): "
+         << (int)(((double)cachedProfile->inactivityDays / 30.0 > 1.0 ? 1.0 : (double)cachedProfile->inactivityDays / 30.0) * 100)
+         << "%" << endl;
     cout << endl;
-    cout << "Recommendation: " << recommendation << endl;
+    cout << "Recommendation: " << cachedProfile->recommendation << endl;
 }
 
 // ============================================================
@@ -640,16 +962,17 @@ void displayIndividualRiskProfile() {
 
 // Exports the at-risk report to a timestamped CSV file.
 void exportAtRiskReportToCSV() {
+    ensureRiskEngineInitialized();
+
     if (riskMaxHeap.size == 0) {
-        cout << "No risk data available. Run 'Update Risk Scores' first." << endl;
+        cout << "No risk data available." << endl;
         return;
     }
 
-    // Build a timestamped filename.
-    time_t now = time(NULL);
+    time_t now = time(nullptr);
     struct tm* timeInfo = localtime(&now);
     char filename[128];
-    strftime(filename, sizeof(filename), "Dataset/risk_report_%Y%m%d_%H%M%S.csv", timeInfo);
+    strftime(filename, sizeof(filename), "risk_report_%Y%m%d_%H%M%S.csv", timeInfo);
 
     ofstream outFile(filename);
     if (!outFile.is_open()) {
@@ -657,45 +980,13 @@ void exportAtRiskReportToCSV() {
         return;
     }
 
-    // Write header row.
     outFile << "learnerID,learnerName,riskScore,averageScore,failureRate,recommendation" << endl;
 
-    // Create a temporary copy of the heap for non-destructive extraction.
-    RiskMaxHeap tempHeap;
-    for (int i = 0; i < riskMaxHeap.size; i++) {
-        tempHeap.entries[i] = riskMaxHeap.entries[i];
-    }
-    tempHeap.size = riskMaxHeap.size;
-
+    RiskMaxHeap tempHeap = riskMaxHeap;
     while (tempHeap.size > 0) {
-        RiskHeapEntry top = tempHeap.entries[0];
-        tempHeap.size--;
-        if (tempHeap.size > 0) {
-            tempHeap.entries[0] = tempHeap.entries[tempHeap.size];
-            int idx = 0;
-            while (true) {
-                int left = 2 * idx + 1;
-                int right = 2 * idx + 2;
-                int largest = idx;
-                if (left < tempHeap.size && tempHeap.entries[left].riskScore > tempHeap.entries[largest].riskScore) {
-                    largest = left;
-                }
-                if (right < tempHeap.size && tempHeap.entries[right].riskScore > tempHeap.entries[largest].riskScore) {
-                    largest = right;
-                }
-                if (largest != idx) {
-                    RiskHeapEntry swap = tempHeap.entries[idx];
-                    tempHeap.entries[idx] = tempHeap.entries[largest];
-                    tempHeap.entries[largest] = swap;
-                    idx = largest;
-                } else {
-                    break;
-                }
-            }
-        }
-
+        RiskHeapEntry top = extractHighestRiskFromHeap(tempHeap);
         Learner* learner = findLearnerByID(top.learnerID);
-        string learnerName = (learner != NULL) ? learner->name : "Unknown";
+        string learnerName = (learner != nullptr) ? learner->name : "Unknown";
 
         outFile << top.learnerID << ","
                 << learnerName << ","
@@ -716,15 +1007,7 @@ void exportAtRiskReportToCSV() {
 
 // Main entry point for the Risk Engine module.
 void initializeRiskEngine() {
-    // If the activity log buffer is empty, generate mock data so we have something to analyze.
-    if (activityLogBuffer.count == 0) {
-        cout << "Activity log buffer is empty. Generating mock data..." << endl;
-        generateMockActivityLogs();
-    }
-
-    // Process all log records and build the risk heap.
-    processAllLogRecords();
-    buildRiskHeapFromStatistics();
+    synchronizeRiskEngineWithLogs();
     cout << "Risk engine initialized. " << riskMaxHeap.size << " learners analyzed." << endl;
 
     int choice;
@@ -752,8 +1035,7 @@ void initializeRiskEngine() {
                 displayIndividualRiskProfile();
                 break;
             case 3:
-                processAllLogRecords();
-                buildRiskHeapFromStatistics();
+                synchronizeRiskEngineWithLogs();
                 cout << "Risk scores recalculated. " << riskMaxHeap.size << " learners analyzed." << endl;
                 break;
             case 4:
