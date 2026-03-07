@@ -1,0 +1,45 @@
+===== ACTIVITY LOG EXPORT =====
+Exported at: 2026-03-07 12:14
+Total records: 40
+===============================
+
+[1] 2026-03-07 12:13 | Learner 5 | S4 Act401 | Debugging | Score: 74% | PASS | Diff: 2/5
+[2] 2026-03-07 12:13 | Learner 10 | S3 Act306 | Functions | Score: 41% | FAIL | Diff: 3/5
+[3] 2026-03-07 12:13 | Learner 2 | S5 Act503 | Integration | Score: 58% | PASS | Diff: 4/5
+[4] 2026-03-07 12:13 | Learner 9 | S4 Act401 | Debugging | Score: 49% | FAIL | Diff: 2/5
+[5] 2026-03-07 12:13 | Learner 6 | S2 Act205 | Loops | Score: 33% | FAIL | Diff: 3/5
+[6] 2026-03-07 12:13 | Learner 7 | S4 Act404 | Debugging | Score: 33% | FAIL | Diff: 4/5
+[7] 2026-03-07 12:13 | Learner 4 | S2 Act204 | Loops | Score: 61% | PASS | Diff: 2/5
+[8] 2026-03-07 12:13 | Learner 10 | S3 Act305 | Functions | Score: 69% | PASS | Diff: 3/5
+[9] 2026-03-07 12:13 | Learner 8 | S2 Act202 | Loops | Score: 56% | PASS | Diff: 1/5
+[10] 2026-03-07 12:13 | Learner 5 | S1 Act104 | Arrays | Score: 46% | FAIL | Diff: 2/5
+[11] 2026-03-07 12:13 | Learner 3 | S4 Act404 | Debugging | Score: 25% | FAIL | Diff: 4/5
+[12] 2026-03-07 12:13 | Learner 4 | S4 Act402 | Debugging | Score: 61% | PASS | Diff: 3/5
+[13] 2026-03-07 12:13 | Learner 11 | S1 Act101 | Arrays | Score: 64% | PASS | Diff: 1/5
+[14] 2026-03-07 12:13 | Learner 9 | S3 Act306 | Functions | Score: 31% | FAIL | Diff: 3/5
+[15] 2026-03-07 12:13 | Learner 4 | S5 Act501 | Integration | Score: 60% | PASS | Diff: 4/5
+[16] 2026-03-07 12:13 | Learner 7 | S2 Act201 | Loops | Score: 74% | PASS | Diff: 1/5
+[17] 2026-03-07 12:13 | Learner 7 | S1 Act103 | Arrays | Score: 70% | PASS | Diff: 2/5
+[18] 2026-03-07 12:13 | Learner 2 | S5 Act502 | Integration | Score: 39% | FAIL | Diff: 4/5
+[19] 2026-03-07 12:13 | Learner 11 | S2 Act202 | Loops | Score: 64% | PASS | Diff: 1/5
+[20] 2026-03-07 12:13 | Learner 6 | S3 Act304 | Functions | Score: 68% | PASS | Diff: 3/5
+[21] 2026-03-07 12:13 | Learner 8 | S2 Act203 | Loops | Score: 75% | PASS | Diff: 2/5
+[22] 2026-03-07 12:13 | Learner 8 | S3 Act301 | Functions | Score: 49% | FAIL | Diff: 2/5
+[23] 2026-03-07 12:13 | Learner 10 | S1 Act105 | Arrays | Score: 33% | FAIL | Diff: 3/5
+[24] 2026-03-07 12:13 | Learner 12 | S3 Act304 | Functions | Score: 65% | PASS | Diff: 3/5
+[25] 2026-03-07 12:13 | Learner 8 | S3 Act304 | Functions | Score: 49% | FAIL | Diff: 3/5
+[26] 2026-03-07 12:13 | Learner 6 | S3 Act305 | Functions | Score: 64% | PASS | Diff: 3/5
+[27] 2026-03-07 12:13 | Learner 6 | S4 Act402 | Debugging | Score: 54% | PASS | Diff: 3/5
+[28] 2026-03-07 12:13 | Learner 4 | S4 Act404 | Debugging | Score: 38% | FAIL | Diff: 4/5
+[29] 2026-03-07 12:13 | Learner 10 | S4 Act404 | Debugging | Score: 38% | FAIL | Diff: 4/5
+[30] 2026-03-07 12:13 | Learner 9 | S5 Act501 | Integration | Score: 39% | FAIL | Diff: 4/5
+[31] 2026-03-07 12:13 | Learner 12 | S2 Act203 | Loops | Score: 61% | PASS | Diff: 2/5
+[32] 2026-03-07 12:13 | Learner 1 | S3 Act302 | Functions | Score: 43% | FAIL | Diff: 2/5
+[33] 2026-03-07 12:13 | Learner 9 | S4 Act401 | Debugging | Score: 48% | FAIL | Diff: 2/5
+[34] 2026-03-07 12:13 | Learner 7 | S4 Act401 | Debugging | Score: 61% | PASS | Diff: 2/5
+[35] 2026-03-07 12:13 | Learner 8 | S2 Act201 | Loops | Score: 56% | PASS | Diff: 1/5
+[36] 2026-03-07 12:13 | Learner 1 | S3 Act302 | Functions | Score: 64% | PASS | Diff: 2/5
+[37] 2026-03-07 12:13 | Learner 8 | S1 Act101 | Arrays | Score: 80% | PASS | Diff: 1/5
+[38] 2026-03-07 12:13 | Learner 12 | S4 Act402 | Debugging | Score: 47% | FAIL | Diff: 3/5
+[39] 2026-03-07 12:13 | Learner 4 | S5 Act502 | Integration | Score: 56% | PASS | Diff: 4/5
+[40] 2026-03-07 12:13 | Learner 9 | S2 Act203 | Loops | Score: 56% | PASS | Diff: 2/5
