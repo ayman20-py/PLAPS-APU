@@ -6,6 +6,7 @@
 #include <limits>
 #include "Tasks/datastructures.h"
 #include "Tasks/task2.cpp"
+#include "Tasks/task1.cpp"
 #include "Tasks/task3.cpp"
 #include "Tasks/task4.cpp"
 
@@ -54,7 +55,13 @@ int main() {
         system("cls");
         
         switch(choice) {
-            case 2:
+            case 1:
+                cout << "Launching Session Management..." << endl;
+                Task1_Menu();
+                // Clear screen after returning from submenu
+                system("cls");
+                break;
+            case 2: 
                 cout << "Initializing Activities" << endl;
                 InitializingSessions();
                 // Clear screen after returning from submenu
@@ -178,6 +185,9 @@ void loadLearnersFromCSV() {
         // Initialize completed sessions array to 0 first
         for (int i = 0; i < 5; i++) {
             newL->completedSessions[i] = 0;
+            for (int j = 0; j < 6; j++) {
+                newL->scores[i][j] = -1;
+            }
         }
 
         // Parse completed sessions from CSV

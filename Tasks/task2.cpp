@@ -98,7 +98,7 @@ void viewAllSessionsAndActivities();
 void changeStudentActivity();
 void rollbackStudentActivity();
 void viewQueues();
-void viewLearnerHistoryByID();
+void viewLearnerScoresByID();
 Learner* findLearnerByID(int id);
 int getMaxActivities(int sessionID);
 void clearInputBuffer();
@@ -400,7 +400,7 @@ void InitializingSessions() {
         cout << "2. Promote Student" << endl;
         cout << "3. Rollback student to previous activity" << endl;
         cout << "4. View Waiting Queues" << endl;
-        cout << "5. View Learner History" << endl;
+        cout << "5. View Learner Scores" << endl;
         cout << "6. Return to Main Menu" << endl;
         cout << "Choice: ";
         
@@ -424,7 +424,7 @@ void InitializingSessions() {
                 viewQueues();
                 break;
             case 5:
-                viewLearnerHistoryByID();
+                viewLearnerScoresByID();
                 break;
             case 6:
                 cout << "Returning to main menu..." << endl;
@@ -521,10 +521,10 @@ void viewQueues() {
     displayQueues();
 }
 
-void viewLearnerHistoryByID() {
+void viewLearnerScoresByID() {
     int learnerID;
     
-    cout << "\n--- VIEW LEARNER HISTORY ---" << endl;
+    cout << "\n--- VIEW LEARNER SCORES ---" << endl;
     cout << "Enter student ID: ";
     
     if (!(cin >> learnerID)) {
@@ -538,8 +538,21 @@ void viewLearnerHistoryByID() {
         cout << "Error: Student with ID " << learnerID << " not found." << endl;
         return;
     }
-    
-    viewLearnerHistory(learner, true);
+
+    cout << "\n--- LEARNER SCORES: " << learner->name << " (ID: " << learner->id << ") ---" << endl;
+    for (int sessionID = 1; sessionID <= 5; sessionID++) {
+        int maxAct = getMaxActivities(sessionID);
+        cout << "\nSession " << sessionID << ":" << endl;
+        for (int activityID = 1; activityID <= maxAct; activityID++) {
+            int score = learner->scores[sessionID - 1][activityID - 1];
+            cout << "  Activity " << activityID << ": ";
+            if (score < 0) {
+                cout << "-" << endl;
+            } else {
+                cout << score << endl;
+            }
+        }
+    }
 }
 
 Learner* findLearnerByID(int id) {
@@ -666,8 +679,9 @@ void changeStudentActivity() {
     
     // Log the activity attempt regardless of pass/fail.
     int logDifficulty = activityDifficultyLevels[currentSession - 1][currentActivity - 1];
-        string logTopic = sessionTopicNames[currentSession - 1];
-        addActivityLogRecord(learnerID, currentSession, currentActivity, logTopic, (int)score, (score < 50), logDifficulty);
+    string logTopic = sessionTopicNames[currentSession - 1];
+    addActivityLogRecord(learnerID, currentSession, currentActivity, logTopic, (int)score, (score < 50), logDifficulty);
+    learner->scores[currentSession - 1][currentActivity - 1] = (int)score;
 
         if (score < 50) {
             cout << "Promotion rejected! Score " << score << "% is below 50% (Fail)." << endl;
