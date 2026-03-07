@@ -7,6 +7,8 @@
 #include "Tasks/datastructures.h"
 #include "Tasks/task2.cpp"
 #include "Tasks/task1.cpp"
+#include "Tasks/task3.cpp"
+#include "Tasks/task4.cpp"
 
 using namespace std;
 
@@ -65,6 +67,16 @@ int main() {
                 // Clear screen after returning from submenu
                 system("cls");
                 break;
+            case 3:
+                cout << "Initializing Activity Logger" << endl;
+                initializeActivityLogger();
+                system("cls");
+                break;
+            case 4:
+                cout << "Initializing Risk Engine" << endl;
+                initializeRiskEngine();
+                system("cls");
+                break;
             case 5: 
                 saveLearnersToCSV();
                 saveQueuesToCSV();
@@ -107,6 +119,32 @@ void saveLearnersToCSV() {
 
     file.close();
 }
+
+int getMaxActivitiesForSession(int sessionID) {
+    if (sessionID == 3) return 6;
+    if (sessionID == 4) return 4;
+    if (sessionID == 5) return 3;
+    return 5;
+}
+
+// void populateLearnerStacks(Learner* learner) {
+//     if (learner == NULL) return;
+//     if (learner->currentSessionID <= 0 || learner->currentActivity <= 0) return;
+    
+//     for (int session = 1; session <= 5; session++) {
+//         int maxActs = getMaxActivitiesForSession(session);
+        
+//         for (int activity = 1; activity <= maxActs; activity++) {
+//             if (session < learner->currentSessionID || 
+//                 (session == learner->currentSessionID && activity < learner->currentActivity)) {
+//                 learner->previousStack.push(session, activity);
+//             } else if (session > learner->currentSessionID || 
+//                        (session == learner->currentSessionID && activity > learner->currentActivity)) {
+//                 learner->nextStack.push(session, activity);
+//             }
+//         }
+//     }
+// }
 
 void loadLearnersFromCSV() {
     ifstream file("Dataset/students.csv");
@@ -161,6 +199,8 @@ void loadLearnersFromCSV() {
         }
 
         learnerLL.addLearner(newL);
+        
+        populateLearnerStacks(newL);
     }
 
     file.close();

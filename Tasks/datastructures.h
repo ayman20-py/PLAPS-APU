@@ -9,6 +9,62 @@ using namespace std;
 // ========== GLOBAL VARIABLES ==========  
 extern int nextID;
 
+// ========== STACK FOR LEARNER HISTORY ==========
+const int MAX_STACK_SIZE = 20;
+
+struct SessionActivity {
+    int sessionID;
+    int activityID;
+};
+
+struct Stack {
+    SessionActivity data[MAX_STACK_SIZE];
+    int top;
+    int capacity;
+    
+    Stack() {
+        top = -1;
+        capacity = MAX_STACK_SIZE;
+    }
+    
+    bool isFull() {
+        return top >= capacity - 1;
+    }
+    
+    bool isEmpty() {
+        return top < 0;
+    }
+    
+    void clear() {
+        top = -1;
+    }
+    
+    void push(int sessionID, int activityID) {
+        if (isFull()) return;
+        top++;
+        data[top].sessionID = sessionID;
+        data[top].activityID = activityID;
+    }
+    
+    SessionActivity pop() {
+        SessionActivity result;
+        result.sessionID = -1;
+        result.activityID = -1;
+        if (isEmpty()) return result;
+        result = data[top];
+        top--;
+        return result;
+    }
+    
+    SessionActivity peek() {
+        SessionActivity result;
+        result.sessionID = -1;
+        result.activityID = -1;
+        if (isEmpty()) return result;
+        return data[top];
+    }
+};
+
 // ========== LEARNER ==========
 struct Learner {
     int id;
@@ -17,7 +73,11 @@ struct Learner {
     int currentActivity;        
     int completedSessions[5];   
     bool isActive;             
-    Learner* next;          
+    Learner* next;
+    
+    // Stacks for navigation
+    Stack previousStack;  // stores completed activities for rollback
+    Stack nextStack;      // stores future activities
 };
 
 // Forward declaration
@@ -82,6 +142,16 @@ struct LoggerRecord {
     time_t timestamp;
 };
 
+// ========== ACTIVITY LOG BUFFER ==========
+// Shared between Task 3 (writer) and Task 4 (reader).
+const int LOG_BUFFER_CAPACITY = 50;
+
+struct ActivityLogBuffer {
+    LoggerRecord records[LOG_BUFFER_CAPACITY];
+    int head;
+    int tail;
+    int count;
+};
 
 class LearnerLinkedList {
     private:

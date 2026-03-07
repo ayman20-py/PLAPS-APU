@@ -63,7 +63,7 @@
 | ------------------------- | ---------------------- | --------------------------------------------------- |
 | **Registered learners**   | **Singly Linked List** | Dynamic growth, O(1) insert, no capacity limit      |
 | **Active session slots**  | **Fixed Array**        | Session capacity known, O(1) slot access            |
-| **Waiting queue**         | **Circular Queue**     | O(1) enqueue/dequeue, no shifting, memory efficient |
+| **Waiting queue**         | **Queue**     | O(1) enqueue/dequeue, no shifting, memory efficient |
 | **Learner → Session map** | **Hash Map**           | O(1): "Which session is learner 101 in?"            |
 | **Learner → Progress**    | **Hash Map**           | O(1): Resume functionality                          |
 | **Sessions**              | **Array of Structs**   | Fixed 5 sessions, random access by ID               |

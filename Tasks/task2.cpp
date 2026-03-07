@@ -77,15 +77,54 @@ EnrollmentQueue enrollmentQueue;
 // Local transition queue instance
 TransitionQueue transitionQueue;
 
+// Session topic names for activity logging.
+const string sessionTopicNames[] = {"Arrays", "Loops", "Functions", "Debugging", "Integration"};
+
+// Activity difficulty levels per session (indexed [session][activity]).
+const int activityDifficultyLevels[][6] = {
+    {1, 1, 2, 2, 3, 0},
+    {1, 1, 2, 2, 3, 0},
+    {2, 2, 2, 3, 3, 3},
+    {2, 3, 3, 4, 0, 0},
+    {4, 4, 4, 0, 0, 0}
+};
+
+// Forward declaration for Task 3 logging.
+void addActivityLogRecord(int learnerID, int sessionID, int activityID,
+                          string topic, int score, bool failed, int difficulty);
+
 // Forward declarations
 void viewAllSessionsAndActivities();
 void changeStudentActivity();
 void rollbackStudentActivity();
 void viewQueues();
+void viewLearnerHistoryByID();
 Learner* findLearnerByID(int id);
 int getMaxActivities(int sessionID);
 void clearInputBuffer();
 bool isActivityOccupied(int sessionID, int activityID, int excludeLearnerID);
+
+void populateLearnerStacks(Learner* learner) {
+    if (learner == NULL) return;
+    if (learner->currentSessionID <= 0 || learner->currentActivity <= 0) return;
+    
+    learner->previousStack.clear();
+    learner->nextStack.clear();
+    
+    for (int session = 1; session <= 5; session++) {
+        int maxActs = getMaxActivities(session);
+        
+        for (int activity = 1; activity <= maxActs; activity++) {
+            if (session < learner->currentSessionID || 
+                (session == learner->currentSessionID && activity < learner->currentActivity)) {
+                learner->previousStack.push(session, activity);
+            } else if (session > learner->currentSessionID || 
+                       (session == learner->currentSessionID && activity > learner->currentActivity)) {
+                learner->nextStack.push(session, activity);
+            }
+        }
+    }
+}
 
 // Queue operations - made accessible to main.cpp
 bool isEnrollmentQueueEmpty() {
@@ -180,6 +219,71 @@ bool isLearnerInTransitionQueue(int learnerID, int &targetSession, int &targetAc
     return false;
 }
 
+// ========== STACK OPERATIONS ==========
+void pushToPreviousStack(Learner* learner, int sessionID, int activityID) {
+    if (learner == NULL) return;
+    learner->previousStack.push(sessionID, activityID);
+}
+
+SessionActivity popFromPreviousStack(Learner* learner) {
+    SessionActivity result;
+    result.sessionID = -1;
+    result.activityID = -1;
+    if (learner == NULL) return result;
+    return learner->previousStack.pop();
+}
+
+SessionActivity peekPreviousStack(Learner* learner) {
+    SessionActivity result;
+    result.sessionID = -1;
+    result.activityID = -1;
+    if (learner == NULL) return result;
+    return learner->previousStack.peek();
+}
+
+void pushToNextStack(Learner* learner, int sessionID, int activityID) {
+    if (learner == NULL) return;
+    learner->nextStack.push(sessionID, activityID);
+}
+
+SessionActivity popFromNextStack(Learner* learner) {
+    SessionActivity result;
+    result.sessionID = -1;
+    result.activityID = -1;
+    if (learner == NULL) return result;
+    return learner->nextStack.pop();
+}
+
+void viewLearnerHistory(Learner* learner, bool showNextStack = true) {
+    if (learner == NULL) return;
+    
+    cout << "\n--- LEARNER HISTORY: " << learner->name << " ---" << endl;
+    
+    cout << "\nPrevious Activities Stack (for rollback):" << endl;
+    if (learner->previousStack.isEmpty()) {
+        cout << "  (empty)" << endl;
+    } else {
+        for (int i = 0; i <= learner->previousStack.top; i++) {
+            cout << "  " << (learner->previousStack.top - i + 1) 
+                 << ". Session " << learner->previousStack.data[i].sessionID 
+                 << ", Activity " << learner->previousStack.data[i].activityID << endl;
+        }
+    }
+    
+    if (showNextStack) {
+        cout << "\nNext Available Activities Stack:" << endl;
+        if (learner->nextStack.isEmpty()) {
+            cout << "  (empty)" << endl;
+        } else {
+            for (int i = 0; i <= learner->nextStack.top; i++) {
+                cout << "  " << (learner->nextStack.top - i + 1) 
+                     << ". Session " << learner->nextStack.data[i].sessionID 
+                     << ", Activity " << learner->nextStack.data[i].activityID << endl;
+            }
+        }
+    }
+}
+
 void processQueues() {
     // First, process transition queue (higher priority for existing students)
     bool processedAny = true;
@@ -201,6 +305,7 @@ void processQueues() {
                     learner->currentSessionID = req.targetSession;
                     learner->currentActivity = req.targetActivity;
                     learner->isActive = true;
+                    populateLearnerStacks(learner);
                     cout << "\n>>> Auto-assigned: Student " << learner->name 
                          << " (ID: " << req.learnerID << ") to Session " 
                          << req.targetSession << ", Activity " << req.targetActivity 
@@ -224,6 +329,7 @@ void processQueues() {
                     learner->currentSessionID = 1;
                     learner->currentActivity = 1;
                     learner->isActive = true;
+                    populateLearnerStacks(learner);
                     cout << "\n>>> Auto-enrolled: Student " << learner->name 
                          << " (ID: " << learnerID << ") to Session 1, Activity 1" << endl;
                 }
@@ -294,7 +400,8 @@ void InitializingSessions() {
         cout << "2. Promote Student" << endl;
         cout << "3. Rollback student to previous activity" << endl;
         cout << "4. View Waiting Queues" << endl;
-        cout << "5. Return to Main Menu" << endl;
+        cout << "5. View Learner History" << endl;
+        cout << "6. Return to Main Menu" << endl;
         cout << "Choice: ";
         
         if (!(cin >> choice)) {
@@ -317,6 +424,9 @@ void InitializingSessions() {
                 viewQueues();
                 break;
             case 5:
+                viewLearnerHistoryByID();
+                break;
+            case 6:
                 cout << "Returning to main menu..." << endl;
                 system("cls");
                 return;
@@ -411,6 +521,27 @@ void viewQueues() {
     displayQueues();
 }
 
+void viewLearnerHistoryByID() {
+    int learnerID;
+    
+    cout << "\n--- VIEW LEARNER HISTORY ---" << endl;
+    cout << "Enter student ID: ";
+    
+    if (!(cin >> learnerID)) {
+        clearInputBuffer();
+        cout << "Invalid input." << endl;
+        return;
+    }
+    
+    Learner* learner = findLearnerByID(learnerID);
+    if (learner == NULL) {
+        cout << "Error: Student with ID " << learnerID << " not found." << endl;
+        return;
+    }
+    
+    viewLearnerHistory(learner, true);
+}
+
 Learner* findLearnerByID(int id) {
     Learner* temp = learnerLL.getHead();
     while (temp != NULL) {
@@ -489,6 +620,7 @@ void changeStudentActivity() {
                 learner->isActive = true;
                 learner->currentSessionID = 1;
                 learner->currentActivity = 1;
+                populateLearnerStacks(learner);
                 cout << "Student enrolled in Session 1, Activity 1." << endl;
             }
         } else if (enroll == 2) {
@@ -504,6 +636,8 @@ void changeStudentActivity() {
     cout << "Current Session: " << learner->currentSessionID << endl;
     cout << "Current Activity: " << learner->currentActivity << endl;
     
+    viewLearnerHistory(learner, true);
+    
     cout << "\nDo you want to promote this student to the next activity? (1=Yes, 0=No): ";
     
     int option;
@@ -516,28 +650,33 @@ void changeStudentActivity() {
     if (option == 1) {
         int currentSession = learner->currentSessionID;
         int currentActivity = learner->currentActivity;
-        
-        double score;
-        cout << "Enter student's score (0-100): ";
-        if (!(cin >> score)) {
-            clearInputBuffer();
-            cout << "Invalid input. Please enter a number." << endl;
-            return;
-        }
+    
+        cout << "\nEnter student's score (0-100): ";
+    double score;
+    if (!(cin >> score)) {
+        clearInputBuffer();
+        cout << "Invalid input. Please enter a number." << endl;
+        return;
+    }
 
-        if (score < 0 || score > 100) {
-            cout << "Invalid score! Must be between 0 and 100." << endl;
-            return;
-        }
-        
+    if (score < 0 || score > 100) {
+        cout << "Invalid score! Must be between 0 and 100." << endl;
+        return;
+    }
+    
+    // Log the activity attempt regardless of pass/fail.
+    int logDifficulty = activityDifficultyLevels[currentSession - 1][currentActivity - 1];
+        string logTopic = sessionTopicNames[currentSession - 1];
+        addActivityLogRecord(learnerID, currentSession, currentActivity, logTopic, (int)score, (score < 50), logDifficulty);
+
         if (score < 50) {
             cout << "Promotion rejected! Score " << score << "% is below 50% (Fail)." << endl;
             return;
         }
         
         int maxActivities = getMaxActivities(currentSession);
-        int targetSession = currentSession;
-        int targetActivity;
+        targetSession = currentSession;
+        targetActivity;
         
         if (currentActivity < maxActivities) {
             targetActivity = currentActivity + 1;
@@ -559,6 +698,10 @@ void changeStudentActivity() {
             cout << "Session " << targetSession << ", Activity " << targetActivity 
                  << " is currently occupied." << endl;
             cout << "Adding student to transition queue..." << endl;
+            
+            pushToPreviousStack(learner, currentSession, currentActivity);
+            pushToNextStack(learner, targetSession, targetActivity);
+            
             enqueueTransition(learnerID, targetSession, targetActivity);
             
             if (currentActivity >= 1 && currentActivity <= 5) {
@@ -572,6 +715,8 @@ void changeStudentActivity() {
             cout << "They will be automatically enrolled when the activity becomes free." << endl;
             return;
         }
+        
+        pushToPreviousStack(learner, currentSession, currentActivity);
         
         learner->currentSessionID = targetSession;
         learner->currentActivity = targetActivity;
@@ -587,10 +732,8 @@ void changeStudentActivity() {
             cout << "Student promoted to Session " << targetSession 
                  << ", Activity " << targetActivity << endl;
         }
-    } else if (option == 0) {
-        cout << "Promotion cancelled." << endl;
-    } else {
-        cout << "Invalid option." << endl;
+        
+        populateLearnerStacks(learner);
     }
 }
 
@@ -639,6 +782,8 @@ void rollbackStudentActivity() {
     cout << "Current Session: " << currentSession << endl;
     cout << "Current Activity: " << currentActivity << endl;
     
+    viewLearnerHistory(learner, false);
+    
     cout << "\nEnter target session (1-" << currentSession << "): ";
     int rollbackSession;
     if (!(cin >> rollbackSession)) {
@@ -676,6 +821,10 @@ void rollbackStudentActivity() {
         cout << "Session " << rollbackSession << ", Activity " << rollbackActivity 
              << " is currently occupied." << endl;
         cout << "Adding student to transition queue..." << endl;
+        
+        pushToPreviousStack(learner, currentSession, currentActivity);
+        pushToNextStack(learner, rollbackSession, rollbackActivity);
+        
         enqueueTransition(learnerID, rollbackSession, rollbackActivity);
         
         learner->isActive = false;
@@ -687,9 +836,14 @@ void rollbackStudentActivity() {
         return;
     }
     
+    pushToPreviousStack(learner, currentSession, currentActivity);
+    pushToNextStack(learner, rollbackSession, rollbackActivity);
+    
     learner->currentSessionID = rollbackSession;
     learner->currentActivity = rollbackActivity;
     
     cout << "Student successfully rolled back to Session " << rollbackSession 
          << ", Activity " << rollbackActivity << endl;
+    
+    populateLearnerStacks(learner);
 }
