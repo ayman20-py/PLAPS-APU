@@ -17,6 +17,7 @@
 #include <ctime>
 #include <cstring>
 #include <cstdlib>
+#include <filesystem>
 #include <limits>
 #include "datastructures.h"
 
@@ -24,6 +25,11 @@
 extern LearnerLinkedList learnerLL;
 Learner* findLearnerByID(int id);
 void notifyRiskEngineOfLogChange(const LoggerRecord* overwrittenRecord, const LoggerRecord& newRecord);
+
+namespace fs = std::filesystem;
+
+void addToLearnerIndex(int learnerID, int bufferIndex);
+void removeFromLearnerIndex(int learnerID, int bufferIndex);
 
 // LOG_BUFFER_CAPACITY and ActivityLogBuffer are defined in datastructures.h.
 
@@ -79,6 +85,184 @@ void ensureActivityLoggerInitialized() {
     initializeActivityLogBuffer();
     initializeLearnerLogIndex();
     activityLoggerInitialized = true;
+}
+
+string trimWhitespace(const string& value) {
+    size_t start = 0;
+    while (start < value.length() && (value[start] == ' ' || value[start] == '\t')) {
+        start++;
+    }
+
+    size_t end = value.length();
+    while (end > start && (value[end - 1] == ' ' || value[end - 1] == '\t')) {
+        end--;
+    }
+
+    return value.substr(start, end - start);
+}
+
+time_t parseLogTimestamp(const string& timestampText) {
+    tm parsedTime = {};
+    int year, month, day, hour, minute;
+
+    if (sscanf(timestampText.c_str(), "%d-%d-%d %d:%d", &year, &month, &day, &hour, &minute) != 5) {
+        return time(nullptr);
+    }
+
+    parsedTime.tm_year = year - 1900;
+    parsedTime.tm_mon = month - 1;
+    parsedTime.tm_mday = day;
+    parsedTime.tm_hour = hour;
+    parsedTime.tm_min = minute;
+    parsedTime.tm_sec = 0;
+    parsedTime.tm_isdst = -1;
+
+    return mktime(&parsedTime);
+}
+
+void insertLogRecord(const LoggerRecord& record, bool notifyRiskEngine) {
+    int insertIndex = activityLogBuffer.tail;
+    LoggerRecord overwrittenRecord;
+    LoggerRecord* overwrittenRecordPtr = nullptr;
+
+    if (activityLogBuffer.count == LOG_BUFFER_CAPACITY) {
+        overwrittenRecord = activityLogBuffer.records[activityLogBuffer.head];
+        overwrittenRecordPtr = &overwrittenRecord;
+        removeFromLearnerIndex(overwrittenRecord.learnerID, activityLogBuffer.head);
+        activityLogBuffer.head = (activityLogBuffer.head + 1) % LOG_BUFFER_CAPACITY;
+    } else {
+        activityLogBuffer.count++;
+    }
+
+    activityLogBuffer.records[insertIndex] = record;
+    addToLearnerIndex(record.learnerID, insertIndex);
+    activityLogBuffer.tail = (activityLogBuffer.tail + 1) % LOG_BUFFER_CAPACITY;
+
+    if (notifyRiskEngine) {
+        notifyRiskEngineOfLogChange(overwrittenRecordPtr, activityLogBuffer.records[insertIndex]);
+    }
+}
+
+bool parseLogRecordLine(const string& line, LoggerRecord& record) {
+    int displayIndex;
+    int year, month, day, hour, minute;
+    int learnerID, sessionID, activityID, score, difficulty;
+    char topicBuffer[128];
+    char statusBuffer[16];
+
+    int parsed = sscanf(
+        line.c_str(),
+        "[%d] %d-%d-%d %d:%d | Learner %d | S%d Act%d | %127[^|] | Score: %d%% | %15[^|] | Diff: %d/5",
+        &displayIndex,
+        &year,
+        &month,
+        &day,
+        &hour,
+        &minute,
+        &learnerID,
+        &sessionID,
+        &activityID,
+        topicBuffer,
+        &score,
+        statusBuffer,
+        &difficulty
+    );
+
+    if (parsed != 13) {
+        return false;
+    }
+
+    ostringstream timestampBuilder;
+    timestampBuilder << year << "-";
+    if (month < 10) timestampBuilder << "0";
+    timestampBuilder << month << "-";
+    if (day < 10) timestampBuilder << "0";
+    timestampBuilder << day << " ";
+    if (hour < 10) timestampBuilder << "0";
+    timestampBuilder << hour << ":";
+    if (minute < 10) timestampBuilder << "0";
+    timestampBuilder << minute;
+
+    record.learnerID = learnerID;
+    record.sessionID = sessionID;
+    record.activityID = activityID;
+    record.topic = trimWhitespace(topicBuffer);
+    record.score = score;
+    record.failed = trimWhitespace(statusBuffer) == "FAIL";
+    record.difficulty = difficulty;
+    record.timestamp = parseLogTimestamp(timestampBuilder.str());
+
+    return true;
+}
+
+bool loadActivityLogsFromDataset() {
+    ensureActivityLoggerInitialized();
+
+    if (activityLogBuffer.count > 0) {
+        return true;
+    }
+
+    string latestLogPath = "";
+
+    try {
+        for (const auto& entry : fs::directory_iterator("Dataset")) {
+            if (!entry.is_regular_file()) {
+                continue;
+            }
+
+            string filename = entry.path().filename().string();
+            if (filename.rfind("logs_", 0) != 0 || entry.path().extension() != ".txt") {
+                continue;
+            }
+
+            string fullPath = entry.path().string();
+            if (latestLogPath.empty() || fullPath > latestLogPath) {
+                latestLogPath = fullPath;
+            }
+        }
+    } catch (...) {
+        return false;
+    }
+
+    if (latestLogPath.empty()) {
+        return false;
+    }
+
+    ifstream inputFile(latestLogPath.c_str());
+    if (!inputFile.is_open()) {
+        return false;
+    }
+
+    string line;
+    int loadedCount = 0;
+    while (getline(inputFile, line)) {
+        LoggerRecord record;
+        if (!parseLogRecordLine(line, record)) {
+            continue;
+        }
+
+        insertLogRecord(record, false);
+        loadedCount++;
+    }
+
+    inputFile.close();
+
+    if (loadedCount > 0) {
+        cout << "Loaded " << loadedCount << " activity logs from " << latestLogPath << endl;
+        return true;
+    }
+
+    return false;
+}
+
+bool ensureActivityLogDataLoaded() {
+    ensureActivityLoggerInitialized();
+
+    if (activityLogBuffer.count > 0) {
+        return true;
+    }
+
+    return loadActivityLogsFromDataset();
 }
 
 // ============================================================
@@ -154,39 +338,17 @@ void addActivityLogRecord(int learnerID, int sessionID, int activityID,
                           string topic, int score, bool failed, int difficulty) {
     ensureActivityLoggerInitialized();
 
-    int insertIndex = activityLogBuffer.tail;
-    LoggerRecord overwrittenRecord;
-    LoggerRecord* overwrittenRecordPtr = nullptr;
+    LoggerRecord record;
+    record.learnerID = learnerID;
+    record.sessionID = sessionID;
+    record.activityID = activityID;
+    record.topic = topic;
+    record.score = score;
+    record.failed = failed;
+    record.difficulty = difficulty;
+    record.timestamp = time(nullptr);
 
-    // If the buffer is full, the oldest record at head gets overwritten.
-    if (activityLogBuffer.count == LOG_BUFFER_CAPACITY) {
-        // Remove the old record's index entry before overwriting.
-        overwrittenRecord = activityLogBuffer.records[activityLogBuffer.head];
-        overwrittenRecordPtr = &overwrittenRecord;
-        int oldLearnerID = overwrittenRecord.learnerID;
-        removeFromLearnerIndex(oldLearnerID, activityLogBuffer.head);
-        activityLogBuffer.head = (activityLogBuffer.head + 1) % LOG_BUFFER_CAPACITY;
-    } else {
-        activityLogBuffer.count++;
-    }
-
-    // Write the new record into the buffer.
-    activityLogBuffer.records[insertIndex].learnerID = learnerID;
-    activityLogBuffer.records[insertIndex].sessionID = sessionID;
-    activityLogBuffer.records[insertIndex].activityID = activityID;
-    activityLogBuffer.records[insertIndex].topic = topic;
-    activityLogBuffer.records[insertIndex].score = score;
-    activityLogBuffer.records[insertIndex].failed = failed;
-    activityLogBuffer.records[insertIndex].difficulty = difficulty;
-    activityLogBuffer.records[insertIndex].timestamp = time(nullptr);
-
-    // Add the new index entry for this learner.
-    addToLearnerIndex(learnerID, insertIndex);
-
-    // Advance the tail pointer.
-    activityLogBuffer.tail = (activityLogBuffer.tail + 1) % LOG_BUFFER_CAPACITY;
-
-    notifyRiskEngineOfLogChange(overwrittenRecordPtr, activityLogBuffer.records[insertIndex]);
+    insertLogRecord(record, true);
 }
 
 // ============================================================
@@ -223,7 +385,7 @@ void displaySingleLogRecord(const LoggerRecord& record, int displayIndex) {
 
 // Displays all log records currently in the circular buffer.
 void viewAllActivityLogs() {
-    ensureActivityLoggerInitialized();
+    ensureActivityLogDataLoaded();
 
     if (activityLogBuffer.count == 0) {
         cout << "No activity logs recorded yet." << endl;
@@ -240,7 +402,7 @@ void viewAllActivityLogs() {
 
 // Filters and displays log records for a specific learner ID.
 void filterLogsByLearnerID() {
-    ensureActivityLoggerInitialized();
+    ensureActivityLogDataLoaded();
 
     int targetLearnerID;
     cout << "Enter Learner ID to filter: ";
@@ -299,7 +461,7 @@ void exportActivityLogsToFile() {
     time_t now = time(nullptr);
     struct tm* timeInfo = localtime(&now);
     char filename[128];
-    strftime(filename, sizeof(filename), "logs_%Y%m%d_%H%M%S.txt", timeInfo);
+    strftime(filename, sizeof(filename), "Dataset/logs_%Y%m%d_%H%M%S.txt", timeInfo);
 
     ofstream outFile(filename);
     if (!outFile.is_open()) {
@@ -406,7 +568,7 @@ int getActivityLogHead() {
 
 // Main entry point for the Activity Logger module.
 void initializeActivityLogger() {
-    ensureActivityLoggerInitialized();
+    ensureActivityLogDataLoaded();
 
     int choice;
     while (true) {

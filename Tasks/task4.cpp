@@ -23,6 +23,7 @@
 extern LearnerLinkedList learnerLL;
 extern ActivityLogBuffer activityLogBuffer;
 Learner* findLearnerByID(int id);
+bool ensureActivityLogDataLoaded();
 
 // ============================================================
 //  NAMED CONSTANTS
@@ -972,7 +973,7 @@ void exportAtRiskReportToCSV() {
     time_t now = time(nullptr);
     struct tm* timeInfo = localtime(&now);
     char filename[128];
-    strftime(filename, sizeof(filename), "risk_report_%Y%m%d_%H%M%S.csv", timeInfo);
+    strftime(filename, sizeof(filename), "Dataset/risk_report_%Y%m%d_%H%M%S.csv", timeInfo);
 
     ofstream outFile(filename);
     if (!outFile.is_open()) {
@@ -1007,6 +1008,7 @@ void exportAtRiskReportToCSV() {
 
 // Main entry point for the Risk Engine module.
 void initializeRiskEngine() {
+    ensureActivityLogDataLoaded();
     synchronizeRiskEngineWithLogs();
     cout << "Risk engine initialized. " << riskMaxHeap.size << " learners analyzed." << endl;
 
