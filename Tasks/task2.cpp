@@ -35,6 +35,8 @@ Session 5: MINI PROJECT LAB
 
 #include <iostream>
 #include <limits>
+#include <fstream>
+#include <sstream>
 #include "datastructures.h"
 
 using namespace std;
@@ -80,6 +82,16 @@ TransitionQueue transitionQueue;
 // Session topic names for activity logging.
 const string sessionTopicNames[] = {"Arrays", "Loops", "Functions", "Debugging", "Integration"};
 
+const char* TASK2_SCORES_FILE = "Dataset/task2_scores.csv";
+const int MAX_SCORE_RECORDS = 1000;
+
+struct ScoreRecord {
+    int learnerID;
+    int sessionID;
+    int activityID;
+    int score;
+};
+
 // Activity difficulty levels per session (indexed [session][activity]).
 const int activityDifficultyLevels[][6] = {
     {1, 1, 2, 2, 3, 0},
@@ -103,6 +115,106 @@ Learner* findLearnerByID(int id);
 int getMaxActivities(int sessionID);
 void clearInputBuffer();
 bool isActivityOccupied(int sessionID, int activityID, int excludeLearnerID);
+void loadTask2ScoresFromCSV(ScoreRecord records[], int &recordCount, int maxRecords);
+void saveTask2ScoresToCSV(ScoreRecord records[], int recordCount);
+int findScoreIndex(ScoreRecord records[], int recordCount, int learnerID, int sessionID, int activityID);
+int getStoredScore(ScoreRecord records[], int recordCount, int learnerID, int sessionID, int activityID);
+void upsertTask2Score(int learnerID, int sessionID, int activityID, int score);
+
+void loadTask2ScoresFromCSV(ScoreRecord records[], int &recordCount, int maxRecords) {
+    recordCount = 0;
+    ifstream file(TASK2_SCORES_FILE);
+    if (!file.is_open()) {
+        return;
+    }
+
+    string line;
+    bool isHeader = true;
+    while (getline(file, line)) {
+        if (isHeader) {
+            isHeader = false;
+            continue;
+        }
+
+        if (line.empty()) continue;
+
+        stringstream ss(line);
+        string learnerIDStr, sessionIDStr, activityIDStr, scoreStr;
+
+        getline(ss, learnerIDStr, ',');
+        getline(ss, sessionIDStr, ',');
+        getline(ss, activityIDStr, ',');
+        getline(ss, scoreStr, ',');
+
+        if (learnerIDStr.empty() || sessionIDStr.empty() || activityIDStr.empty() || scoreStr.empty()) {
+            continue;
+        }
+
+        if (recordCount >= maxRecords) {
+            break;
+        }
+
+        records[recordCount].learnerID = stoi(learnerIDStr);
+        records[recordCount].sessionID = stoi(sessionIDStr);
+        records[recordCount].activityID = stoi(activityIDStr);
+        records[recordCount].score = stoi(scoreStr);
+        recordCount++;
+    }
+
+    file.close();
+}
+
+void saveTask2ScoresToCSV(ScoreRecord records[], int recordCount) {
+    ofstream file(TASK2_SCORES_FILE);
+    if (!file.is_open()) {
+        cout << "Error: Could not open task2_scores.csv for writing" << endl;
+        return;
+    }
+
+    file << "learnerID,sessionID,activityID,score" << endl;
+    for (int i = 0; i < recordCount; i++) {
+        file << records[i].learnerID << "," << records[i].sessionID << ","
+             << records[i].activityID << "," << records[i].score << endl;
+    }
+
+    file.close();
+}
+
+int findScoreIndex(ScoreRecord records[], int recordCount, int learnerID, int sessionID, int activityID) {
+    for (int i = 0; i < recordCount; i++) {
+        if (records[i].learnerID == learnerID &&
+            records[i].sessionID == sessionID &&
+            records[i].activityID == activityID) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int getStoredScore(ScoreRecord records[], int recordCount, int learnerID, int sessionID, int activityID) {
+    int idx = findScoreIndex(records, recordCount, learnerID, sessionID, activityID);
+    if (idx < 0) return -1;
+    return records[idx].score;
+}
+
+void upsertTask2Score(int learnerID, int sessionID, int activityID, int score) {
+    ScoreRecord records[MAX_SCORE_RECORDS];
+    int recordCount = 0;
+    loadTask2ScoresFromCSV(records, recordCount, MAX_SCORE_RECORDS);
+
+    int idx = findScoreIndex(records, recordCount, learnerID, sessionID, activityID);
+    if (idx >= 0) {
+        records[idx].score = score;
+    } else if (recordCount < MAX_SCORE_RECORDS) {
+        records[recordCount].learnerID = learnerID;
+        records[recordCount].sessionID = sessionID;
+        records[recordCount].activityID = activityID;
+        records[recordCount].score = score;
+        recordCount++;
+    }
+
+    saveTask2ScoresToCSV(records, recordCount);
+}
 
 void populateLearnerStacks(Learner* learner) {
     if (learner == NULL) return;
@@ -539,12 +651,16 @@ void viewLearnerScoresByID() {
         return;
     }
 
+    ScoreRecord records[MAX_SCORE_RECORDS];
+    int recordCount = 0;
+    loadTask2ScoresFromCSV(records, recordCount, MAX_SCORE_RECORDS);
+
     cout << "\n--- LEARNER SCORES: " << learner->name << " (ID: " << learner->id << ") ---" << endl;
     for (int sessionID = 1; sessionID <= 5; sessionID++) {
         int maxAct = getMaxActivities(sessionID);
         cout << "\nSession " << sessionID << ":" << endl;
         for (int activityID = 1; activityID <= maxAct; activityID++) {
-            int score = learner->scores[sessionID - 1][activityID - 1];
+            int score = getStoredScore(records, recordCount, learnerID, sessionID, activityID);
             cout << "  Activity " << activityID << ": ";
             if (score < 0) {
                 cout << "-" << endl;
@@ -682,6 +798,7 @@ void changeStudentActivity() {
     string logTopic = sessionTopicNames[currentSession - 1];
     addActivityLogRecord(learnerID, currentSession, currentActivity, logTopic, (int)score, (score < 50), logDifficulty);
     learner->scores[currentSession - 1][currentActivity - 1] = (int)score;
+    upsertTask2Score(learnerID, currentSession, currentActivity, (int)score);
 
         if (score < 50) {
             cout << "Promotion rejected! Score " << score << "% is below 50% (Fail)." << endl;
